@@ -1,0 +1,33 @@
+# Build artifacts
+target/
+style/output.css
+
+# Dependencies (will be rebuilt in container)
+node_modules/
+
+# Git
+.git/
+.gitignore
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Old version
+old-version/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Docs / misc
+README.md
+LICENSE
+*.md

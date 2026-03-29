@@ -1,1 +1,25 @@
-old-version
+# Build artifacts
+/target/
+style/output.css
+
+# Dependencies
+/node_modules/
+Cargo.lock
+package-lock.json
+
+# Environment
+.env
+
+# Old version
+old-version/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
