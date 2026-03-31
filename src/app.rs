@@ -12,7 +12,7 @@ pub fn App() -> impl IntoView {
 
     view! {
         <Stylesheet id="leptos" href="/pkg/koentji-lab.css"/>
-        <Title text="KoentjiLab"/>
+        <Title text="Koentji"/>
 
         <Router>
             <Routes fallback=|| view! { <NotFound/> }>
