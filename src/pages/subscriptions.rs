@@ -183,17 +183,19 @@ pub fn SubscriptionsPage() -> impl IntoView {
                     </Suspense>
                 </div>
 
-                <Modal
-                    show=Signal::derive(move || show_form.get())
-                    on_close=on_form_cancel
-                    title="Subscription Type"
-                >
-                    <SubscriptionForm
-                        editing=Signal::derive(move || editing.get())
-                        on_submit=on_form_submit
-                        on_cancel=on_form_cancel
-                    />
-                </Modal>
+                <Show when=move || show_form.get()>
+                    <Modal
+                        show=Signal::derive(move || show_form.get())
+                        on_close=on_form_cancel
+                        title="Subscription Type"
+                    >
+                        <SubscriptionForm
+                            editing=Signal::derive(move || editing.get())
+                            on_submit=on_form_submit
+                            on_cancel=on_form_cancel
+                        />
+                    </Modal>
+                </Show>
             </div>
         </Layout>
     }
