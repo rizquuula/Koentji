@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 use crate::components::layout::Layout;
-use crate::components::modal::Modal;
+use crate::components::modal::{ConfirmModal, Modal};
 use crate::components::toast::use_toast;
 use crate::models::*;
 use crate::server::rate_limit_service::list_rate_limit_intervals;
@@ -18,6 +18,8 @@ pub fn SubscriptionsPage() -> impl IntoView {
     );
 
     let intervals_resource = Resource::new(|| (), |_| list_rate_limit_intervals());
+
+    let confirm_delete_id = RwSignal::new(None::<i32>);
 
     let show_form = RwSignal::new(false);
     let editing = RwSignal::new(None::<SubscriptionType>);
@@ -68,17 +70,20 @@ pub fn SubscriptionsPage() -> impl IntoView {
         });
     };
 
-    let handle_delete = move |id: i32| {
-        let toast = toast.clone();
-        leptos::task::spawn_local(async move {
-            match delete_subscription_type(id).await {
-                Ok(_) => {
-                    refresh_trigger.update(|v| *v += 1);
-                    toast.success("Subscription type deleted.");
+    let do_delete = move || {
+        if let Some(id) = confirm_delete_id.get_untracked() {
+            confirm_delete_id.set(None);
+            let toast = toast.clone();
+            leptos::task::spawn_local(async move {
+                match delete_subscription_type(id).await {
+                    Ok(_) => {
+                        refresh_trigger.update(|v| *v += 1);
+                        toast.success("Subscription type deleted.");
+                    }
+                    Err(e) => toast.error(&format!("Failed: {}", e)),
                 }
-                Err(e) => toast.error(&format!("Failed: {}", e)),
-            }
-        });
+            });
+        }
     };
 
     // Build a lookup map for interval names
@@ -164,7 +169,7 @@ pub fn SubscriptionsPage() -> impl IntoView {
                                                             </button>
                                                             <button
                                                                 class="text-sm text-red-600 hover:text-red-800"
-                                                                on:click=move |_| handle_delete(id)
+                                                                on:click=move |_| confirm_delete_id.set(Some(id))
                                                             >
                                                                 "Delete"
                                                             </button>
@@ -197,6 +202,16 @@ pub fn SubscriptionsPage() -> impl IntoView {
                     </Modal>
                 </Show>
             </div>
+
+            <ConfirmModal
+                show=Signal::derive(move || confirm_delete_id.get().is_some())
+                on_confirm=Callback::new(move |_| do_delete())
+                on_cancel=Callback::new(move |_| confirm_delete_id.set(None))
+                title="Delete Subscription Type"
+                message="Are you sure you want to delete this subscription type? This action cannot be undone."
+                confirm_label="Delete"
+                danger=true
+            />
         </Layout>
     }
 }

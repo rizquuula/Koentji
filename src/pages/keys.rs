@@ -1,7 +1,7 @@
 use crate::components::key_form::KeyForm;
 use crate::components::key_table::KeyTable;
 use crate::components::layout::Layout;
-use crate::components::modal::Modal;
+use crate::components::modal::{ConfirmModal, Modal};
 use crate::models::AuthenticationKey;
 use crate::server::key_service::{delete_key, list_keys, reset_rate_limit};
 use leptos::prelude::*;
@@ -38,21 +38,38 @@ pub fn KeysPage() -> impl IntoView {
         editing_key.set(Some(key));
     });
 
+    let confirm_delete_id = RwSignal::new(None::<i32>);
+    let confirm_reset_id = RwSignal::new(None::<i32>);
+
     let on_delete = Callback::new(move |id: i32| {
-        leptos::task::spawn_local(async move {
-            if let Ok(()) = delete_key(id).await {
-                refresh_counter.update(|c| *c += 1);
-            }
-        });
+        confirm_delete_id.set(Some(id));
     });
 
     let on_reset = Callback::new(move |id: i32| {
-        leptos::task::spawn_local(async move {
-            if let Ok(()) = reset_rate_limit(id).await {
-                refresh_counter.update(|c| *c += 1);
-            }
-        });
+        confirm_reset_id.set(Some(id));
     });
+
+    let do_delete = move || {
+        if let Some(id) = confirm_delete_id.get_untracked() {
+            confirm_delete_id.set(None);
+            leptos::task::spawn_local(async move {
+                if let Ok(()) = delete_key(id).await {
+                    refresh_counter.update(|c| *c += 1);
+                }
+            });
+        }
+    };
+
+    let do_reset = move || {
+        if let Some(id) = confirm_reset_id.get_untracked() {
+            confirm_reset_id.set(None);
+            leptos::task::spawn_local(async move {
+                if let Ok(()) = reset_rate_limit(id).await {
+                    refresh_counter.update(|c| *c += 1);
+                }
+            });
+        }
+    };
 
     // Debounced search
     let search_input = RwSignal::new(String::new());
@@ -175,6 +192,27 @@ pub fn KeysPage() -> impl IntoView {
                     }
                 })}
             </Modal>
+
+            // Delete Confirmation Modal
+            <ConfirmModal
+                show=Signal::derive(move || confirm_delete_id.get().is_some())
+                on_confirm=Callback::new(move |_| do_delete())
+                on_cancel=Callback::new(move |_| confirm_delete_id.set(None))
+                title="Delete API Key"
+                message="Are you sure you want to delete this API key? This action cannot be undone."
+                confirm_label="Delete"
+                danger=true
+            />
+
+            // Reset Rate Limit Confirmation Modal
+            <ConfirmModal
+                show=Signal::derive(move || confirm_reset_id.get().is_some())
+                on_confirm=Callback::new(move |_| do_reset())
+                on_cancel=Callback::new(move |_| confirm_reset_id.set(None))
+                title="Reset Rate Limit"
+                message="Are you sure you want to reset the rate limit for this API key? The remaining count will be restored to the daily limit."
+                confirm_label="Reset"
+            />
         </Layout>
     }
 }

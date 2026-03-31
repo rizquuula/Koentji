@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 use crate::components::layout::Layout;
-use crate::components::modal::Modal;
+use crate::components::modal::{ConfirmModal, Modal};
 use crate::components::toast::use_toast;
 use crate::models::*;
 use crate::server::rate_limit_service::*;
@@ -15,6 +15,8 @@ pub fn LimitsIntervalPage() -> impl IntoView {
         move || refresh_trigger.get(),
         |_| list_all_rate_limit_intervals(),
     );
+
+    let confirm_delete_id = RwSignal::new(None::<i32>);
 
     let show_form = RwSignal::new(false);
     let editing = RwSignal::new(None::<RateLimitInterval>);
@@ -64,17 +66,20 @@ pub fn LimitsIntervalPage() -> impl IntoView {
         });
     };
 
-    let handle_delete = move |id: i32| {
-        let toast = toast.clone();
-        leptos::task::spawn_local(async move {
-            match delete_rate_limit_interval(id).await {
-                Ok(_) => {
-                    refresh_trigger.update(|v| *v += 1);
-                    toast.success("Interval deleted.");
+    let do_delete = move || {
+        if let Some(id) = confirm_delete_id.get_untracked() {
+            confirm_delete_id.set(None);
+            let toast = toast.clone();
+            leptos::task::spawn_local(async move {
+                match delete_rate_limit_interval(id).await {
+                    Ok(_) => {
+                        refresh_trigger.update(|v| *v += 1);
+                        toast.success("Interval deleted.");
+                    }
+                    Err(e) => toast.error(&format!("Failed: {}", e)),
                 }
-                Err(e) => toast.error(&format!("Failed: {}", e)),
-            }
-        });
+            });
+        }
     };
 
     view! {
@@ -145,7 +150,7 @@ pub fn LimitsIntervalPage() -> impl IntoView {
                                                             </button>
                                                             <button
                                                                 class="text-sm text-red-600 hover:text-red-800"
-                                                                on:click=move |_| handle_delete(id)
+                                                                on:click=move |_| confirm_delete_id.set(Some(id))
                                                             >
                                                                 "Delete"
                                                             </button>
@@ -178,6 +183,16 @@ pub fn LimitsIntervalPage() -> impl IntoView {
                     </Modal>
                 </Show>
             </div>
+
+            <ConfirmModal
+                show=Signal::derive(move || confirm_delete_id.get().is_some())
+                on_confirm=Callback::new(move |_| do_delete())
+                on_cancel=Callback::new(move |_| confirm_delete_id.set(None))
+                title="Delete Interval"
+                message="Are you sure you want to delete this rate limit interval? This action cannot be undone."
+                confirm_label="Delete"
+                danger=true
+            />
         </Layout>
     }
 }
