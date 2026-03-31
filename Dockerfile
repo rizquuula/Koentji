@@ -1,5 +1,10 @@
 FROM rust:1.88 AS builder
 
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN cargo install cargo-leptos
 RUN rustup target add wasm32-unknown-unknown
 
