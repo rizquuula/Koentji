@@ -1,18 +1,17 @@
-FROM rust:1.88 AS builder
+FROM rust:1.90 AS builder
 
-RUN apt-get update && apt-get install -y curl && \
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
+RUN wget -qO /usr/local/bin/tailwindcss \
+    https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64 && \
+    chmod +x /usr/local/bin/tailwindcss
 
-RUN cargo install cargo-leptos
+RUN cargo install cargo-binstall --locked
+RUN cargo binstall cargo-leptos --locked --no-confirm
 RUN rustup target add wasm32-unknown-unknown
 
 WORKDIR /app
 COPY . .
 
-RUN npm install -g tailwindcss
-RUN npx tailwindcss -i style/input.css -o style/output.css --minify
+RUN tailwindcss -i style/input.css -o style/output.css --minify
 RUN cargo leptos build --release
 
 FROM debian:bookworm-slim
