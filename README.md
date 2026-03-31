@@ -1,4 +1,4 @@
-# Koentji Lab
+# Koentji
 
 API key management dashboard and authentication service. Lets you issue, manage, and revoke API keys with subscription tiers and configurable rate limits. External applications authenticate their users against the `/v1/auth` endpoint.
 

@@ -1,5 +1,5 @@
 [package]
-name = "koentji-lab"
+name = "koentji"
 version = "0.1.0"
 edition = "2021"
 
@@ -60,7 +60,7 @@ codegen-units = 1
 panic = "abort"
 
 [package.metadata.leptos]
-output-name = "koentji-lab"
+output-name = "koentji"
 site-root = "target/site"
 site-pkg-dir = "pkg"
 assets-dir = "public"

@@ -13,7 +13,7 @@ pub fn App() -> impl IntoView {
     provide_toast_context();
 
     view! {
-        <Stylesheet id="leptos" href="/pkg/koentji-lab.css"/>
+        <Stylesheet id="leptos" href="/pkg/koentji.css"/>
         <Title text="Koentji"/>
         <Script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"/>
         <Script src="/assets/js/charts.js"/>

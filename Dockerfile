@@ -20,7 +20,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/target/release/koentji-lab .
+COPY --from=builder /app/target/release/koentji .
 COPY --from=builder /app/target/site ./target/site
 
 ENV LEPTOS_SITE_ADDR="0.0.0.0:3000"
@@ -28,4 +28,4 @@ ENV LEPTOS_SITE_ROOT="target/site"
 
 EXPOSE 3000
 
-CMD ["./koentji-lab"]
+CMD ["./koentji"]

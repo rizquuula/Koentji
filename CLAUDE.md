@@ -1,8 +1,8 @@
-# Koentji Lab — Claude Code Guide
+# Koentji — Claude Code Guide
 
 ## Project Overview
 
-**Koentji Lab** is an API key management dashboard and authentication service. It allows an admin to issue, manage, and revoke API keys with subscription tiers and rate limits. External applications authenticate their users by calling the `/v1/auth` endpoint.
+**Koentji** is an API key management dashboard and authentication service. It allows an admin to issue, manage, and revoke API keys with subscription tiers and rate limits. External applications authenticate their users by calling the `/v1/auth` endpoint.
 
 The project has two components:
 
