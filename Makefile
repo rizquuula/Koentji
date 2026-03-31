@@ -1,4 +1,7 @@
-.PHONY: help dev run build fmt clippy test clean migrate db-create db-reset seed docker-up docker-down docker-up-db tailwind
+.PHONY: help dev run build fmt clippy test clean migrate db-create db-reset docker-up docker-down docker-up-db tailwind
+
+-include .env
+export
 
 .DEFAULT_GOAL := help
 
@@ -36,9 +39,6 @@ db-reset: ## Drop and recreate the database
 
 migrate: ## Run database migrations
 	psql $(DATABASE_URL) -f migrations/001_create_auth_keys.sql
-
-seed: ## Seed the database
-	psql $(DATABASE_URL) -f migrations/seed.sql
 
 ## Code quality
 fmt: ## Format code
