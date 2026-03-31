@@ -62,6 +62,14 @@ impl ToastContext {
             std::time::Duration::from_secs(5),
         );
     }
+
+    pub fn success(&self, message: &str) {
+        self.push(message.to_string(), ToastType::Success);
+    }
+
+    pub fn error(&self, message: &str) {
+        self.push(message.to_string(), ToastType::Error);
+    }
 }
 
 pub fn provide_toast_context() -> ToastContext {

@@ -79,6 +79,13 @@ async fn main() -> std::io::Result<()> {
     let pool = koentji_lab::db::create_pool().await;
     koentji_lab::db::run_migrations(&pool).await;
 
+    let cache_ttl: u64 = std::env::var("AUTH_CACHE_TTL_SECONDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(900); // 15 minutes default
+    let auth_cache = std::sync::Arc::new(koentji_lab::cache::AuthCache::new(cache_ttl));
+    koentji_lab::server::key_service::set_global_auth_cache(auth_cache.clone());
+
     let secret_key = std::env::var("SECRET_KEY").unwrap_or_else(|_| {
         "a-very-secret-key-that-should-be-at-least-64-bytes-long-for-security-purposes-change-me"
             .to_string()
@@ -95,8 +102,10 @@ async fn main() -> std::io::Result<()> {
         let leptos_options = &conf.leptos_options;
         let site_root = leptos_options.site_root.clone().to_string();
         let pool = pool.clone();
+        let auth_cache = auth_cache.clone();
 
         actix_web::App::new()
+            .app_data(web::Data::from(auth_cache))
             .service(auth_endpoint)
             .service(
                 web::resource("/docs").route(web::get().to(|| async {
@@ -169,6 +178,7 @@ async fn main() -> std::io::Result<()> {
 async fn auth_endpoint(
     body: actix_web::web::Json<AuthRequest>,
     pool: actix_web::web::Data<sqlx::PgPool>,
+    auth_cache: actix_web::web::Data<std::sync::Arc<koentji_lab::cache::AuthCache>>,
 ) -> actix_web::HttpResponse {
     use actix_web::http::StatusCode;
     use chrono::Utc;
@@ -177,43 +187,69 @@ async fn auth_endpoint(
     let free_trial_key = std::env::var("FREE_TRIAL_KEY")
         .unwrap_or_else(|_| "FREE_TRIAL_SERPUL_PINTAR".to_string());
 
-    // 1. Look up key by auth_key + auth_device
-    let row = sqlx::query_as::<_, koentji_lab::models::AuthenticationKey>(
-        "SELECT * FROM authentication_keys WHERE key = $1 AND device_id = $2",
-    )
-    .bind(&body.auth_key)
-    .bind(&body.auth_device)
-    .fetch_optional(pool.get_ref())
-    .await;
+    // 1. Check cache first
+    let cached = auth_cache.get(&body.auth_key, &body.auth_device).await;
 
-    let key = match row {
-        Err(_) => {
-            return actix_web::HttpResponse::InternalServerError().json(json!({
-                "error": { "en": "Internal server error." },
-                "message": "Internal server error."
-            }));
-        }
-        Ok(Some(k)) => k,
-        Ok(None) => {
-            // Attempt free trial upsert
-            let upserted = try_upsert_free_trial(
-                pool.get_ref(),
-                &body.auth_key,
-                &body.auth_device,
-                &free_trial_key,
-            )
-            .await;
+    let (key, interval_seconds) = if let Some(entry) = cached {
+        (entry.key_data, entry.interval_seconds)
+    } else {
+        // Cache miss — query DB with JOIN for interval
+        let row = sqlx::query_as::<_, AuthKeyWithInterval>(
+            r#"SELECT ak.*, COALESCE(rli.duration_seconds, 86400) as interval_seconds
+               FROM authentication_keys ak
+               LEFT JOIN rate_limit_intervals rli ON ak.rate_limit_interval_id = rli.id
+               WHERE ak.key = $1 AND ak.device_id = $2"#,
+        )
+        .bind(&body.auth_key)
+        .bind(&body.auth_device)
+        .fetch_optional(pool.get_ref())
+        .await;
 
-            match upserted {
-                Ok(Some(k)) => k,
-                _ => {
-                    return actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(json!({
-                        "error": {
-                            "en": "Authentication key invalid or not exists in our system.",
-                            "id": "Authentication key tidak valid atau tidak ditemukan di sistem kami."
+        match row {
+            Err(_) => {
+                return actix_web::HttpResponse::InternalServerError().json(json!({
+                    "error": { "en": "Internal server error." },
+                    "message": "Internal server error."
+                }));
+            }
+            Ok(Some(r)) => {
+                let key = r.to_auth_key();
+                let interval_seconds = r.interval_seconds;
+                // Populate cache
+                auth_cache
+                    .insert(
+                        &body.auth_key,
+                        &body.auth_device,
+                        koentji_lab::cache::CachedAuthEntry {
+                            key_data: key.clone(),
+                            interval_seconds,
+                            cached_at: Utc::now(),
                         },
-                        "message": "Authentication key invalid or not exists in our system."
-                    }));
+                    )
+                    .await;
+                (key, interval_seconds)
+            }
+            Ok(None) => {
+                // Attempt free trial upsert
+                let upserted = try_upsert_free_trial(
+                    pool.get_ref(),
+                    &body.auth_key,
+                    &body.auth_device,
+                    &free_trial_key,
+                )
+                .await;
+
+                match upserted {
+                    Ok(Some(k)) => (k, 86400i64), // free trial defaults to daily
+                    _ => {
+                        return actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(json!({
+                            "error": {
+                                "en": "Authentication key invalid or not exists in our system.",
+                                "id": "Authentication key tidak valid atau tidak ditemukan di sistem kami."
+                            },
+                            "message": "Authentication key invalid or not exists in our system."
+                        }));
+                    }
                 }
             }
         }
@@ -243,27 +279,29 @@ async fn auth_endpoint(
         }));
     }
 
-    // 4. Compute new rate limit (reset daily if needed)
+    // 4. Compute new rate limit (reset based on interval)
     let now = Utc::now();
-    let new_remaining = match key.rate_limit_updated_at {
-        None => key.rate_limit_daily - body.rate_limit_usage,
-        Some(updated_at) if updated_at.date_naive() < now.date_naive() => {
-            key.rate_limit_daily - body.rate_limit_usage
-        }
-        Some(_) => key.rate_limit_remaining - body.rate_limit_usage,
+    let should_reset = match key.rate_limit_updated_at {
+        None => true,
+        Some(updated_at) => (now - updated_at).num_seconds() >= interval_seconds,
+    };
+    let new_remaining = if should_reset {
+        key.rate_limit_daily - body.rate_limit_usage
+    } else {
+        key.rate_limit_remaining - body.rate_limit_usage
     };
 
     if new_remaining <= 0 {
         return actix_web::HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).json(json!({
             "error": {
-                "en": "Rate limit exceeded. Please try again tomorrow or upgrade your subscription.",
-                "id": "Batas rate limit terlampaui. Silakan coba lagi besok atau upgrade langganan Anda."
+                "en": "Rate limit exceeded. Please try again later or upgrade your subscription.",
+                "id": "Batas rate limit terlampaui. Silakan coba lagi nanti atau upgrade langganan Anda."
             },
-            "message": "Rate limit exceeded. Please try again tomorrow or upgrade your subscription."
+            "message": "Rate limit exceeded. Please try again later or upgrade your subscription."
         }));
     }
 
-    // 5. Update rate limit in DB
+    // 5. Update rate limit in DB (write-through)
     let update_result = sqlx::query(
         "UPDATE authentication_keys SET rate_limit_remaining = $1, rate_limit_updated_at = $2 WHERE key = $3 AND device_id = $4",
     )
@@ -281,6 +319,23 @@ async fn auth_endpoint(
         }));
     }
 
+    // Update cache with new rate limit values
+    auth_cache
+        .insert(
+            &body.auth_key,
+            &body.auth_device,
+            koentji_lab::cache::CachedAuthEntry {
+                key_data: koentji_lab::models::AuthenticationKey {
+                    rate_limit_remaining: new_remaining,
+                    rate_limit_updated_at: Some(now),
+                    ..key.clone()
+                },
+                interval_seconds,
+                cached_at: Utc::now(),
+            },
+        )
+        .await;
+
     // 6. Return success
     actix_web::HttpResponse::Ok().json(json!({
         "status": "success",
@@ -294,6 +349,57 @@ async fn auth_endpoint(
             "rate_limit_remaining": new_remaining,
         }
     }))
+}
+
+/// Helper struct for JOIN query that includes interval_seconds
+#[cfg(feature = "ssr")]
+#[derive(sqlx::FromRow)]
+struct AuthKeyWithInterval {
+    pub id: i32,
+    pub key: String,
+    pub device_id: String,
+    pub subscription: Option<String>,
+    pub rate_limit_daily: i32,
+    pub rate_limit_remaining: i32,
+    pub rate_limit_updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub username: Option<String>,
+    pub email: Option<String>,
+    pub created_by: Option<String>,
+    pub updated_by: Option<String>,
+    pub deleted_by: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub expired_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub subscription_type_id: Option<i32>,
+    pub rate_limit_interval_id: Option<i32>,
+    pub interval_seconds: i64,
+}
+
+#[cfg(feature = "ssr")]
+impl AuthKeyWithInterval {
+    fn to_auth_key(&self) -> koentji_lab::models::AuthenticationKey {
+        koentji_lab::models::AuthenticationKey {
+            id: self.id,
+            key: self.key.clone(),
+            device_id: self.device_id.clone(),
+            subscription: self.subscription.clone(),
+            rate_limit_daily: self.rate_limit_daily,
+            rate_limit_remaining: self.rate_limit_remaining,
+            rate_limit_updated_at: self.rate_limit_updated_at,
+            username: self.username.clone(),
+            email: self.email.clone(),
+            created_by: self.created_by.clone(),
+            updated_by: self.updated_by.clone(),
+            deleted_by: self.deleted_by.clone(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            expired_at: self.expired_at,
+            deleted_at: self.deleted_at,
+            subscription_type_id: self.subscription_type_id,
+            rate_limit_interval_id: self.rate_limit_interval_id,
+        }
+    }
 }
 
 /// Attempt to upsert a free trial record.

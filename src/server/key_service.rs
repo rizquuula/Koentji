@@ -82,7 +82,29 @@ pub async fn create_key(req: CreateKeyRequest) -> Result<AuthenticationKey, Serv
     let pool = extract::<actix_web::web::Data<PgPool>>().await?;
 
     let key = generate_api_key();
-    let rate_limit = req.rate_limit_daily.unwrap_or(6000);
+
+    // Look up subscription type to get defaults
+    let (rate_limit, subscription_name, rate_limit_interval_id) =
+        if let Some(st_id) = req.subscription_type_id {
+            let st = sqlx::query_as::<_, crate::models::SubscriptionType>(
+                "SELECT * FROM subscription_types WHERE id = $1",
+            )
+            .bind(st_id)
+            .fetch_optional(pool.get_ref())
+            .await
+            .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+            match st {
+                Some(st) => (
+                    req.rate_limit_daily.unwrap_or(st.rate_limit_amount),
+                    Some(st.name),
+                    Some(st.rate_limit_interval_id),
+                ),
+                None => (req.rate_limit_daily.unwrap_or(6000), req.subscription.clone(), None),
+            }
+        } else {
+            (req.rate_limit_daily.unwrap_or(6000), req.subscription.clone(), None)
+        };
 
     let expired_at: Option<chrono::DateTime<chrono::Utc>> = req
         .expired_at
@@ -98,14 +120,16 @@ pub async fn create_key(req: CreateKeyRequest) -> Result<AuthenticationKey, Serv
         });
 
     let created = sqlx::query_as::<_, AuthenticationKey>(
-        r#"INSERT INTO authentication_keys (key, device_id, subscription, rate_limit_daily, rate_limit_remaining, username, email, expired_at, created_by)
-           VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8)
+        r#"INSERT INTO authentication_keys (key, device_id, subscription, subscription_type_id, rate_limit_daily, rate_limit_remaining, rate_limit_interval_id, username, email, expired_at, created_by)
+           VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10)
            RETURNING *"#,
     )
     .bind(&key)
     .bind(&req.device_id)
-    .bind(&req.subscription)
+    .bind(&subscription_name)
+    .bind(req.subscription_type_id)
     .bind(rate_limit)
+    .bind(rate_limit_interval_id)
     .bind(&req.username)
     .bind(&req.email)
     .bind(expired_at)
@@ -123,6 +147,24 @@ pub async fn update_key(id: i32, req: UpdateKeyRequest) -> Result<Authentication
     use sqlx::PgPool;
 
     let pool = extract::<actix_web::web::Data<PgPool>>().await?;
+
+    // Look up subscription type for name + interval if changing subscription
+    let (subscription_name, rate_limit_interval_id) = if let Some(st_id) = req.subscription_type_id {
+        let st = sqlx::query_as::<_, crate::models::SubscriptionType>(
+            "SELECT * FROM subscription_types WHERE id = $1",
+        )
+        .bind(st_id)
+        .fetch_optional(pool.get_ref())
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+        match st {
+            Some(st) => (Some(st.name), Some(st.rate_limit_interval_id)),
+            None => (req.subscription.clone(), None),
+        }
+    } else {
+        (req.subscription.clone(), None)
+    };
 
     let expired_at: Option<chrono::DateTime<chrono::Utc>> = req
         .expired_at
@@ -143,8 +185,10 @@ pub async fn update_key(id: i32, req: UpdateKeyRequest) -> Result<Authentication
             username = COALESCE($3, username),
             email = COALESCE($4, email),
             subscription = COALESCE($5, subscription),
-            rate_limit_daily = COALESCE($6, rate_limit_daily),
-            expired_at = $7,
+            subscription_type_id = COALESCE($6, subscription_type_id),
+            rate_limit_daily = COALESCE($7, rate_limit_daily),
+            rate_limit_interval_id = COALESCE($8, rate_limit_interval_id),
+            expired_at = $9,
             updated_by = 'admin',
             updated_at = NOW()
            WHERE id = $1
@@ -154,14 +198,45 @@ pub async fn update_key(id: i32, req: UpdateKeyRequest) -> Result<Authentication
     .bind(&req.device_id)
     .bind(&req.username)
     .bind(&req.email)
-    .bind(&req.subscription)
+    .bind(&subscription_name)
+    .bind(req.subscription_type_id)
     .bind(req.rate_limit_daily)
+    .bind(rate_limit_interval_id)
     .bind(expired_at)
     .fetch_one(pool.get_ref())
     .await
     .map_err(|e| ServerFnError::new(e.to_string()))?;
 
+    // Invalidate auth cache for this key
+    invalidate_cache_for_key(pool.get_ref(), id).await;
+
     Ok(updated)
+}
+
+#[cfg(feature = "ssr")]
+async fn invalidate_cache_for_key(pool: &sqlx::PgPool, id: i32) {
+    // Look up the key to get auth_key for cache invalidation
+    if let Ok(key) = sqlx::query_scalar::<_, String>(
+        "SELECT key FROM authentication_keys WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    {
+        // We invalidate by key (all devices) since we don't know the device_id
+        if let Some(cache) = GLOBAL_AUTH_CACHE.get() {
+            cache.invalidate_by_key(&key).await;
+        }
+    }
+}
+
+#[cfg(feature = "ssr")]
+static GLOBAL_AUTH_CACHE: std::sync::OnceLock<std::sync::Arc<crate::cache::AuthCache>> =
+    std::sync::OnceLock::new();
+
+#[cfg(feature = "ssr")]
+pub fn set_global_auth_cache(cache: std::sync::Arc<crate::cache::AuthCache>) {
+    let _ = GLOBAL_AUTH_CACHE.set(cache);
 }
 
 #[server]
@@ -176,6 +251,8 @@ pub async fn delete_key(id: i32) -> Result<(), ServerFnError> {
         .execute(pool.get_ref())
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    invalidate_cache_for_key(pool.get_ref(), id).await;
 
     Ok(())
 }
@@ -210,6 +287,8 @@ pub async fn reset_rate_limit(id: i32) -> Result<(), ServerFnError> {
     .execute(pool.get_ref())
     .await
     .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    invalidate_cache_for_key(pool.get_ref(), id).await;
 
     Ok(())
 }

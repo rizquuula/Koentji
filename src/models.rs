@@ -20,6 +20,33 @@ pub struct AuthenticationKey {
     pub updated_at: DateTime<Utc>,
     pub expired_at: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
+    pub subscription_type_id: Option<i32>,
+    pub rate_limit_interval_id: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(sqlx::FromRow))]
+pub struct RateLimitInterval {
+    pub id: i32,
+    pub name: String,
+    pub display_name: String,
+    pub duration_seconds: i64,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ssr", derive(sqlx::FromRow))]
+pub struct SubscriptionType {
+    pub id: i32,
+    pub name: String,
+    pub display_name: String,
+    pub rate_limit_amount: i32,
+    pub rate_limit_interval_id: i32,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 impl AuthenticationKey {
@@ -67,6 +94,7 @@ pub struct CreateKeyRequest {
     pub username: Option<String>,
     pub email: Option<String>,
     pub subscription: Option<String>,
+    pub subscription_type_id: Option<i32>,
     pub rate_limit_daily: Option<i32>,
     pub expired_at: Option<String>,
 }
@@ -77,8 +105,41 @@ pub struct UpdateKeyRequest {
     pub username: Option<String>,
     pub email: Option<String>,
     pub subscription: Option<String>,
+    pub subscription_type_id: Option<i32>,
     pub rate_limit_daily: Option<i32>,
     pub expired_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateSubscriptionTypeRequest {
+    pub name: String,
+    pub display_name: String,
+    pub rate_limit_amount: i32,
+    pub rate_limit_interval_id: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSubscriptionTypeRequest {
+    pub name: Option<String>,
+    pub display_name: Option<String>,
+    pub rate_limit_amount: Option<i32>,
+    pub rate_limit_interval_id: Option<i32>,
+    pub is_active: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateRateLimitIntervalRequest {
+    pub name: String,
+    pub display_name: String,
+    pub duration_seconds: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateRateLimitIntervalRequest {
+    pub name: Option<String>,
+    pub display_name: Option<String>,
+    pub duration_seconds: Option<i64>,
+    pub is_active: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-use crate::pages::{dashboard::DashboardPage, keys::KeysPage, login::LoginPage, quickstart::QuickstartPage};
+use crate::pages::{dashboard::DashboardPage, keys::KeysPage, login::LoginPage, quickstart::QuickstartPage, rate_limits::RateLimitsPage, subscriptions::SubscriptionsPage};
 use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::{
@@ -19,6 +19,8 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("/login") view=LoginPage/>
                 <Route path=path!("/dashboard") view=DashboardPage/>
                 <Route path=path!("/keys") view=KeysPage/>
+                <Route path=path!("/subscriptions") view=SubscriptionsPage/>
+                <Route path=path!("/rate-limits") view=RateLimitsPage/>
                 <Route path=path!("/quickstart") view=QuickstartPage/>
                 <Route path=path!("/") view=|| view! { <leptos_router::components::Redirect path="/dashboard"/> }/>
             </Routes>

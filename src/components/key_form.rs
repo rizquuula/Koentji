@@ -1,4 +1,5 @@
 use crate::models::{AuthenticationKey, CreateKeyRequest, UpdateKeyRequest};
+use crate::server::subscription_service::list_subscription_types;
 use leptos::prelude::*;
 
 #[component]
@@ -9,6 +10,8 @@ pub fn KeyForm(
 ) -> impl IntoView {
     let is_editing = editing.is_some();
     let key = editing.clone();
+
+    let subs_resource = Resource::new(|| (), |_| list_subscription_types());
 
     let device_id = RwSignal::new(key.as_ref().map(|k| k.device_id.clone()).unwrap_or_default());
     let username = RwSignal::new(
@@ -21,9 +24,10 @@ pub fn KeyForm(
             .and_then(|k| k.email.clone())
             .unwrap_or_default(),
     );
-    let subscription = RwSignal::new(
+    let subscription_type_id = RwSignal::new(
         key.as_ref()
-            .and_then(|k| k.subscription.clone())
+            .and_then(|k| k.subscription_type_id)
+            .map(|id| id.to_string())
             .unwrap_or_default(),
     );
     let rate_limit = RwSignal::new(
@@ -47,10 +51,12 @@ pub fn KeyForm(
         let device_id = device_id.get();
         let username = username.get();
         let email = email.get();
-        let subscription = subscription.get();
+        let subscription_type_id_val = subscription_type_id.get();
         let rate_limit = rate_limit.get();
         let expired_at = expired_at.get();
         let on_submit = on_submit.clone();
+
+        let st_id: Option<i32> = subscription_type_id_val.parse().ok();
 
         leptos::task::spawn_local(async move {
             let result = if is_editing {
@@ -58,7 +64,8 @@ pub fn KeyForm(
                     device_id: Some(device_id),
                     username: if username.is_empty() { None } else { Some(username) },
                     email: if email.is_empty() { None } else { Some(email) },
-                    subscription: if subscription.is_empty() { None } else { Some(subscription) },
+                    subscription: None, // derived from subscription_type_id on server
+                    subscription_type_id: st_id,
                     rate_limit_daily: rate_limit.parse().ok(),
                     expired_at: if expired_at.is_empty() { None } else { Some(expired_at) },
                 };
@@ -70,7 +77,8 @@ pub fn KeyForm(
                     device_id,
                     username: if username.is_empty() { None } else { Some(username) },
                     email: if email.is_empty() { None } else { Some(email) },
-                    subscription: if subscription.is_empty() { None } else { Some(subscription) },
+                    subscription: None, // derived from subscription_type_id on server
+                    subscription_type_id: st_id,
                     rate_limit_daily: rate_limit.parse().ok(),
                     expired_at: if expired_at.is_empty() { None } else { Some(expired_at) },
                 };
@@ -116,20 +124,46 @@ pub fn KeyForm(
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">"Subscription"</label>
-                <select
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    prop:value=move || subscription.get()
-                    on:change=move |ev| subscription.set(event_target_value(&ev))
-                >
-                    <option value="">"Select..."</option>
-                    <option value="free">"Free"</option>
-                    <option value="basic">"Basic"</option>
-                    <option value="pro">"Pro"</option>
-                    <option value="enterprise">"Enterprise"</option>
-                </select>
+                <Suspense fallback=|| view! { <span class="text-gray-400">"Loading..."</span> }>
+                    {move || subs_resource.get().map(|result| {
+                        match result {
+                            Ok(subs) => {
+                                // When subscription changes, auto-fill rate limit
+                                let subs_for_change = subs.clone();
+                                let on_sub_change = move |ev: leptos::ev::Event| {
+                                    let val = event_target_value(&ev);
+                                    subscription_type_id.set(val.clone());
+                                    if let Ok(id) = val.parse::<i32>() {
+                                        if let Some(sub) = subs_for_change.iter().find(|s| s.id == id) {
+                                            rate_limit.set(sub.rate_limit_amount.to_string());
+                                        }
+                                    }
+                                };
+                                view! {
+                                    <select
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                        prop:value=move || subscription_type_id.get()
+                                        on:change=on_sub_change
+                                    >
+                                        <option value="">"Select..."</option>
+                                        {subs.into_iter().map(|sub| {
+                                            let val = sub.id.to_string();
+                                            view! {
+                                                <option value=val>{sub.display_name}</option>
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    </select>
+                                }.into_any()
+                            },
+                            Err(_) => view! {
+                                <span class="text-red-500">"Failed to load subscriptions"</span>
+                            }.into_any(),
+                        }
+                    })}
+                </Suspense>
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Daily Rate Limit"</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">"Rate Limit"</label>
                 <input
                     type="number"
                     min="0"
@@ -137,6 +171,7 @@ pub fn KeyForm(
                     prop:value=move || rate_limit.get()
                     on:input=move |ev| rate_limit.set(event_target_value(&ev))
                 />
+                <p class="text-xs text-gray-400 mt-1">"Auto-filled from subscription. Override if needed."</p>
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">"Expiration Date"</label>
