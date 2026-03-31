@@ -90,7 +90,7 @@ pub fn use_toast() -> ToastContext {
 
 #[component]
 pub fn ToastContainer() -> impl IntoView {
-    let ctx = provide_toast_context();
+    let ctx = use_toast();
 
     view! {
         <div class="fixed top-4 right-4 z-50 space-y-2">

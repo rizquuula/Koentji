@@ -12,6 +12,7 @@ package-lock.json
 
 # Old version
 old-version/
+agAuth
 
 # IDE
 .idea/

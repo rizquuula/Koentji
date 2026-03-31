@@ -37,8 +37,8 @@ db-reset: ## Drop and recreate the database
 	createdb koentjilab
 	$(MAKE) migrate
 
-migrate: ## Run database migrations
-	psql $(DATABASE_URL) -f migrations/001_create_auth_keys.sql
+migrate: ## Run pending migrations
+	cargo run --features ssr -- run-migrations
 
 ## Code quality
 fmt: ## Format code

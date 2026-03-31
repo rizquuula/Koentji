@@ -1,3 +1,5 @@
+#![recursion_limit = "512"]
+
 #[cfg(feature = "ssr")]
 use utoipa::OpenApi;
 
@@ -60,6 +62,15 @@ struct AuthError {
 #[cfg(feature = "ssr")]
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(|s| s.as_str()) == Some("run-migrations") {
+        dotenvy::dotenv().ok();
+        let pool = koentji_lab::db::create_pool().await;
+        koentji_lab::db::run_migrations(&pool).await;
+        println!("All migrations done.");
+        return Ok(());
+    }
+
     use actix_files::Files;
     use actix_session::config::{CookieContentSecurity, PersistentSession};
     use actix_session::storage::CookieSessionStore;
