@@ -61,7 +61,7 @@ fn render_charts(stats: &DashboardStats) {
             &JsValue::from_str(&json_str),
         );
 
-        // Call JS render function
-        let _ = js_sys::eval("if(typeof renderCharts === 'function') renderCharts()");
+        // Defer render so canvas elements are mounted in the DOM first
+        let _ = js_sys::eval("setTimeout(function(){ if(typeof renderCharts === 'function') renderCharts(); }, 0)");
     }
 }

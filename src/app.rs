@@ -15,6 +15,8 @@ pub fn App() -> impl IntoView {
     view! {
         <Stylesheet id="leptos" href="/pkg/koentji-lab.css"/>
         <Title text="Koentji"/>
+        <Script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"/>
+        <Script src="/assets/js/charts.js"/>
 
         <Router>
             <Routes fallback=|| view! { <NotFound/> }>
