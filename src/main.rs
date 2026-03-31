@@ -189,7 +189,7 @@ async fn main() -> std::io::Result<()> {
 async fn auth_endpoint(
     body: actix_web::web::Json<AuthRequest>,
     pool: actix_web::web::Data<sqlx::PgPool>,
-    auth_cache: actix_web::web::Data<std::sync::Arc<koentji_lab::cache::AuthCache>>,
+    auth_cache: actix_web::web::Data<koentji_lab::cache::AuthCache>,
 ) -> actix_web::HttpResponse {
     use actix_web::http::StatusCode;
     use chrono::Utc;
