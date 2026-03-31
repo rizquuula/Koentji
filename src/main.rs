@@ -196,7 +196,7 @@ async fn auth_endpoint(
     use serde_json::json;
 
     let free_trial_key = std::env::var("FREE_TRIAL_KEY")
-        .unwrap_or_else(|_| "FREE_TRIAL_SERPUL_PINTAR".to_string());
+        .unwrap_or_else(|_| "FREE_TRIAL".to_string());
 
     // 1. Check cache first
     let cached = auth_cache.get(&body.auth_key, &body.auth_device).await;
