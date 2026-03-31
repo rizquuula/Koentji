@@ -167,11 +167,14 @@ pub fn KeyForm(
                 <input
                     type="number"
                     min="0"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed"
                     prop:value=move || rate_limit.get()
-                    on:input=move |ev| rate_limit.set(event_target_value(&ev))
+                    readonly=move || !is_editing
+                    on:input=move |ev| { if is_editing { rate_limit.set(event_target_value(&ev)) } }
                 />
-                <p class="text-xs text-gray-400 mt-1">"Auto-filled from subscription. Override if needed."</p>
+                <p class="text-xs text-gray-400 mt-1">
+                    {if is_editing { "Override rate limit if needed." } else { "Determined by subscription." }}
+                </p>
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">"Expiration Date"</label>

@@ -7,7 +7,7 @@ use crate::models::*;
 use crate::server::rate_limit_service::*;
 
 #[component]
-pub fn RateLimitsPage() -> impl IntoView {
+pub fn LimitsIntervalPage() -> impl IntoView {
     let toast = use_toast();
     let refresh_trigger = RwSignal::new(0u32);
 
@@ -78,7 +78,7 @@ pub fn RateLimitsPage() -> impl IntoView {
     };
 
     view! {
-        <Layout active_tab="rate_limits">
+        <Layout active_tab="limits_interval">
             <div class="space-y-6">
                 <div class="flex justify-between items-center">
                     <div>

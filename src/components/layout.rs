@@ -36,7 +36,7 @@ pub fn Layout(
     let dashboard_class = nav_class("dashboard");
     let keys_class = nav_class("keys");
     let subscriptions_class = nav_class("subscriptions");
-    let rate_limits_class = nav_class("rate_limits");
+    let rate_limits_class = nav_class("limits_interval");
     let quickstart_class = nav_class("quickstart");
 
     view! {
@@ -55,7 +55,7 @@ pub fn Layout(
                                 <a href="/dashboard" class=dashboard_class>"Dashboard"</a>
                                 <a href="/keys" class=keys_class>"API Keys"</a>
                                 <a href="/subscriptions" class=subscriptions_class>"Subscriptions"</a>
-                                <a href="/rate-limits" class=rate_limits_class>"Rate Limits"</a>
+                                <a href="/limits-interval" class=rate_limits_class>"Limits Interval"</a>
                                 <a href="/quickstart" class=quickstart_class>"Quickstart"</a>
                             </div>
                         </div>
