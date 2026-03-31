@@ -1,4 +1,4 @@
-FROM rust:1.83 as builder
+FROM rust:1.88 AS builder
 
 RUN cargo install cargo-leptos
 RUN rustup target add wasm32-unknown-unknown

@@ -1,33 +1,43 @@
 services:
   app:
+    container_name: koentji-app
     build: .
     ports:
-      - "3000:3000"
+      - "${APP_PORT:-3000}:3000"
     environment:
-      - DATABASE_URL=postgres://koentji:koentji@db:5432/koentjilab
+      - DATABASE_URL=${DATABASE_URL:-postgres://koentji:koentji@db:5432/koentjilab}
       - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string-at-least-64-bytes-long}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - FREE_TRIAL_KEY=${FREE_TRIAL_KEY:-FREE_TRIAL}
+      - AUTH_CACHE_TTL_SECONDS=${AUTH_CACHE_TTL_SECONDS:-900}
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
 
   db:
-    image: postgres:16-alpine
+    container_name: koentji-db
+    image: ${DB_IMAGE:-postgres:16-alpine}
     environment:
-      POSTGRES_USER: koentji
-      POSTGRES_PASSWORD: koentji
-      POSTGRES_DB: koentjilab
+      POSTGRES_USER: ${POSTGRES_USER:-koentji}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-koentji}
+      POSTGRES_DB: ${POSTGRES_DB:-koentjilab}
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U koentji -d koentjilab"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-koentji} -d ${POSTGRES_DB:-koentjilab}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    env_file:
+      - path: .env
+        required: false
 
 volumes:
   pgdata:
