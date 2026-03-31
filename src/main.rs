@@ -65,8 +65,8 @@ async fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(|s| s.as_str()) == Some("run-migrations") {
         dotenvy::dotenv().ok();
-        let pool = koentji_lab::db::create_pool().await;
-        koentji_lab::db::run_migrations(&pool).await;
+        let pool = koentji::db::create_pool().await;
+        koentji::db::run_migrations(&pool).await;
         println!("All migrations done.");
         return Ok(());
     }
@@ -78,7 +78,7 @@ async fn main() -> std::io::Result<()> {
     use actix_web::cookie::time::Duration;
     use actix_web::cookie::Key;
     use actix_web::*;
-    use koentji_lab::app::*;
+    use koentji::app::*;
     use leptos::config::get_configuration;
     use leptos::prelude::*;
     use leptos_actix::{generate_route_list, LeptosRoutes};
@@ -87,15 +87,15 @@ async fn main() -> std::io::Result<()> {
 
     dotenvy::dotenv().ok();
 
-    let pool = koentji_lab::db::create_pool().await;
-    koentji_lab::db::run_migrations(&pool).await;
+    let pool = koentji::db::create_pool().await;
+    koentji::db::run_migrations(&pool).await;
 
     let cache_ttl: u64 = std::env::var("AUTH_CACHE_TTL_SECONDS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(900); // 15 minutes default
-    let auth_cache = std::sync::Arc::new(koentji_lab::cache::AuthCache::new(cache_ttl));
-    koentji_lab::server::key_service::set_global_auth_cache(auth_cache.clone());
+    let auth_cache = std::sync::Arc::new(koentji::cache::AuthCache::new(cache_ttl));
+    koentji::server::key_service::set_global_auth_cache(auth_cache.clone());
 
     let secret_key = std::env::var("SECRET_KEY").unwrap_or_else(|_| {
         "a-very-secret-key-that-should-be-at-least-64-bytes-long-for-security-purposes-change-me"
@@ -189,7 +189,7 @@ async fn main() -> std::io::Result<()> {
 async fn auth_endpoint(
     body: actix_web::web::Json<AuthRequest>,
     pool: actix_web::web::Data<sqlx::PgPool>,
-    auth_cache: actix_web::web::Data<koentji_lab::cache::AuthCache>,
+    auth_cache: actix_web::web::Data<koentji::cache::AuthCache>,
 ) -> actix_web::HttpResponse {
     use actix_web::http::StatusCode;
     use chrono::Utc;
@@ -231,7 +231,7 @@ async fn auth_endpoint(
                     .insert(
                         &body.auth_key,
                         &body.auth_device,
-                        koentji_lab::cache::CachedAuthEntry {
+                        koentji::cache::CachedAuthEntry {
                             key_data: key.clone(),
                             interval_seconds,
                             cached_at: Utc::now(),
@@ -335,8 +335,8 @@ async fn auth_endpoint(
         .insert(
             &body.auth_key,
             &body.auth_device,
-            koentji_lab::cache::CachedAuthEntry {
-                key_data: koentji_lab::models::AuthenticationKey {
+            koentji::cache::CachedAuthEntry {
+                key_data: koentji::models::AuthenticationKey {
                     rate_limit_remaining: new_remaining,
                     rate_limit_updated_at: Some(now),
                     ..key.clone()
@@ -389,8 +389,8 @@ struct AuthKeyWithInterval {
 
 #[cfg(feature = "ssr")]
 impl AuthKeyWithInterval {
-    fn to_auth_key(&self) -> koentji_lab::models::AuthenticationKey {
-        koentji_lab::models::AuthenticationKey {
+    fn to_auth_key(&self) -> koentji::models::AuthenticationKey {
+        koentji::models::AuthenticationKey {
             id: self.id,
             key: self.key.clone(),
             device_id: self.device_id.clone(),
@@ -423,7 +423,7 @@ async fn try_upsert_free_trial(
     auth_key: &str,
     device_id: &str,
     free_trial_key: &str,
-) -> Result<Option<koentji_lab::models::AuthenticationKey>, sqlx::Error> {
+) -> Result<Option<koentji::models::AuthenticationKey>, sqlx::Error> {
     use chrono::{Datelike, Utc};
 
     let now = Utc::now();
@@ -442,7 +442,7 @@ async fn try_upsert_free_trial(
 
     if auth_key == free_trial_key {
         // Insert new free trial row for this device
-        let row = sqlx::query_as::<_, koentji_lab::models::AuthenticationKey>(
+        let row = sqlx::query_as::<_, koentji::models::AuthenticationKey>(
             r#"INSERT INTO authentication_keys
                 (key, device_id, subscription, created_by, created_at, updated_at, expired_at, rate_limit_daily, rate_limit_remaining)
                VALUES ($1, $2, 'free_trial', 'system', $3, $3, $4, 6000, 6000)
@@ -467,7 +467,7 @@ async fn try_upsert_free_trial(
 
     if exists.is_some() {
         // Bind this device to the existing key (free trial)
-        let row = sqlx::query_as::<_, koentji_lab::models::AuthenticationKey>(
+        let row = sqlx::query_as::<_, koentji::models::AuthenticationKey>(
             r#"UPDATE authentication_keys
                SET device_id = $1, subscription = 'free_trial', created_by = 'system',
                    created_at = $2, expired_at = $3
@@ -503,7 +503,7 @@ pub fn main() {}
 
 #[cfg(all(not(feature = "ssr"), feature = "csr"))]
 pub fn main() {
-    use koentji_lab::app::*;
+    use koentji::app::*;
     console_error_panic_hook::set_once();
     leptos::mount_to_body(App);
 }
