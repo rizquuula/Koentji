@@ -6,10 +6,19 @@ use crate::components::toast::ToastContainer;
 #[component]
 pub fn Layout(
     #[prop(into)] active_tab: String,
+    #[prop(default = true)] require_auth: bool,
     children: Children,
 ) -> impl IntoView {
     let active = active_tab.clone();
     let user_resource = Resource::new(|| (), |_| get_current_user());
+
+    if require_auth {
+        Effect::new(move |_| {
+            if let Some(Ok(None)) = user_resource.get() {
+                leptos::prelude::window().location().set_href("/login").ok();
+            }
+        });
+    }
 
     let handle_logout = Action::new(|_: &()| async {
         let _ = logout().await;
@@ -26,6 +35,7 @@ pub fn Layout(
 
     let dashboard_class = nav_class("dashboard");
     let keys_class = nav_class("keys");
+    let quickstart_class = nav_class("quickstart");
 
     view! {
         <div class="min-h-screen bg-gray-50">
@@ -42,6 +52,7 @@ pub fn Layout(
                             <div class="flex space-x-1">
                                 <a href="/dashboard" class=dashboard_class>"Dashboard"</a>
                                 <a href="/keys" class=keys_class>"API Keys"</a>
+                                <a href="/quickstart" class=quickstart_class>"Quickstart"</a>
                             </div>
                         </div>
                         <div class="flex items-center space-x-4">

@@ -37,6 +37,7 @@ async fn main() -> std::io::Result<()> {
         let pool = pool.clone();
 
         actix_web::App::new()
+            .service(validate_key)
             .wrap(
                 SessionMiddleware::builder(CookieSessionStore::default(), cookie_key.clone())
                     .cookie_name("koentjilab_session".to_string())
@@ -78,6 +79,62 @@ async fn main() -> std::io::Result<()> {
     .bind(&addr)?
     .run()
     .await
+}
+
+#[cfg(feature = "ssr")]
+#[actix_web::get("/api/validate")]
+async fn validate_key(
+    req: actix_web::HttpRequest,
+    pool: actix_web::web::Data<sqlx::PgPool>,
+) -> actix_web::HttpResponse {
+    use actix_web::http::StatusCode;
+    use serde_json::json;
+
+    let api_key = match req.headers().get("X-API-Key").and_then(|v| v.to_str().ok()) {
+        Some(k) => k.to_string(),
+        None => {
+            return actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(
+                json!({ "error": "missing_api_key", "message": "X-API-Key header is required" }),
+            );
+        }
+    };
+
+    let row = sqlx::query_as::<_, koentji_lab::models::AuthenticationKey>(
+        "SELECT * FROM authentication_keys WHERE key = $1 AND deleted_at IS NULL",
+    )
+    .bind(&api_key)
+    .fetch_optional(pool.get_ref())
+    .await;
+
+    match row {
+        Ok(Some(key)) => {
+            if key.is_expired() {
+                return actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(
+                    json!({ "error": "key_expired", "message": "This API key has expired" }),
+                );
+            }
+            if key.rate_limit_remaining <= 0 {
+                return actix_web::HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).json(
+                    json!({
+                        "error": "rate_limit_exceeded",
+                        "message": "Daily rate limit reached",
+                        "rate_limit_remaining": 0
+                    }),
+                );
+            }
+            actix_web::HttpResponse::Ok().json(json!({
+                "valid": true,
+                "subscription": key.subscription,
+                "rate_limit_daily": key.rate_limit_daily,
+                "rate_limit_remaining": key.rate_limit_remaining,
+            }))
+        }
+        Ok(None) => actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(
+            json!({ "error": "invalid_api_key", "message": "The provided API key is not valid" }),
+        ),
+        Err(_) => actix_web::HttpResponse::InternalServerError()
+            .json(json!({ "error": "server_error", "message": "Internal server error" })),
+    }
 }
 
 #[cfg(feature = "ssr")]
