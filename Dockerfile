@@ -13,6 +13,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+RUN npx tailwindcss -i style/input.css -o style/output.css --config tailwind.config.js --minify
 RUN cargo leptos build --release
 
 FROM debian:bookworm-slim
