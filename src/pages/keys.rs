@@ -198,9 +198,9 @@ pub fn KeysPage() -> impl IntoView {
                 show=Signal::derive(move || confirm_delete_id.get().is_some())
                 on_confirm=Callback::new(move |_| do_delete())
                 on_cancel=Callback::new(move |_| confirm_delete_id.set(None))
-                title="Delete API Key"
-                message="Are you sure you want to delete this API key? This action cannot be undone."
-                confirm_label="Delete"
+                title="Revoke API Key"
+                message="Are you sure you want to revoke this API key? This action cannot be undone."
+                confirm_label="Revoke"
                 danger=true
             />
 

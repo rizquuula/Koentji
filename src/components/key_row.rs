@@ -143,7 +143,7 @@ pub fn KeyRow(
                     </button>
                     <button
                         class="text-red-600 hover:text-red-800 text-xs"
-                        title="Delete"
+                        title="Revoke"
                         on:click=move |_| on_delete.run(key_id)
                     >
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
