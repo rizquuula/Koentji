@@ -4,13 +4,15 @@ RUN cargo install cargo-binstall --locked
 RUN cargo binstall cargo-leptos --locked --no-confirm
 RUN rustup target add wasm32-unknown-unknown
 
+# Install Node.js (for npx tailwindcss)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs
+
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+
 COPY . .
-
-COPY tailwindcss /usr/local/bin/tailwindcss
-RUN chmod +x /usr/local/bin/tailwindcss
-
-RUN tailwindcss -i style/input.css -o style/output.css --minify
 RUN cargo leptos build --release
 
 FROM debian:bookworm-slim

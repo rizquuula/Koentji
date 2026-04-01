@@ -2,7 +2,6 @@ services:
   app:
     container_name: koentji-app
     image: ghcr.io/rizquuula/koentji:latest
-    build: .
     ports:
       - "${APP_PORT:-3000}:3000"
     environment:
@@ -39,6 +38,18 @@ services:
     env_file:
       - path: .env
         required: false
+
+  watchtower:
+    container_name: koentji-watchtower
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - REPO_USER=${CR_USER}
+      - REPO_PASS=${CR_PAT}
+      - WATCHTOWER_POLL_INTERVAL=${WATCHTOWER_POLL_INTERVAL:-300}
+    command: koentji-app
+    restart: unless-stopped
 
 volumes:
   pgdata:

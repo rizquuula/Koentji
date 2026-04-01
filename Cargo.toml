@@ -75,3 +75,6 @@ bin-default-features = false
 lib-features = ["hydrate"]
 lib-default-features = false
 lib-profile-release = "wasm-release"
+tailwind-command = "npx tailwindcss"
+tailwind-input-file = "style/input.css"
+tailwind-config-file = "tailwind.config.js"
