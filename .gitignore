@@ -5,7 +5,6 @@ style/output.css
 # Dependencies
 /node_modules/
 Cargo.lock
-package-lock.json
 
 # Environment
 .env
