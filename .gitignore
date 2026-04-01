@@ -1,6 +1,7 @@
 # Build artifacts
 /target/
 style/output.css
+tailwindcss
 
 # Dependencies
 /node_modules/

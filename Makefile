@@ -1,4 +1,4 @@
-.PHONY: help dev run build fmt clippy test clean migrate db-create db-reset docker-up docker-down docker-up-db tailwind
+.PHONY: help dev run build fmt clippy test clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs tailwind
 
 -include .env
 export
@@ -9,7 +9,7 @@ export
 help: ## Show this help message
 	@echo "Usage: make [target]"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 ## Development
 dev: tailwind ## Run dev server with cargo leptos watch
@@ -65,3 +65,6 @@ docker-down: ## Stop all containers
 
 docker-build: ## Build Docker images
 	docker compose build
+
+docker-logs: ## Tail logs for all containers (or pass s=service to filter)
+	docker compose logs -f $(s)

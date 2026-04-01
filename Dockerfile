@@ -1,15 +1,14 @@
 FROM rust:1.90 AS builder
 
-RUN wget -qO /usr/local/bin/tailwindcss \
-    https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64 && \
-    chmod +x /usr/local/bin/tailwindcss
-
 RUN cargo install cargo-binstall --locked
 RUN cargo binstall cargo-leptos --locked --no-confirm
 RUN rustup target add wasm32-unknown-unknown
 
 WORKDIR /app
 COPY . .
+
+COPY tailwindcss /usr/local/bin/tailwindcss
+RUN chmod +x /usr/local/bin/tailwindcss
 
 RUN tailwindcss -i style/input.css -o style/output.css --minify
 RUN cargo leptos build --release
