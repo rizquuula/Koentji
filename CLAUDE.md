@@ -71,6 +71,7 @@ See `.env.example`:
 | `ADMIN_PASSWORD` | Dashboard login password |
 | `FREE_TRIAL_KEY` | Magic string that triggers free-trial upsert (default: `FREE_TRIAL`) |
 | `AUTH_CACHE_TTL_SECONDS` | How long auth results are cached (default: 900) |
+| `WORKERS` | Number of Actix-Web worker threads (default: 4) |
 
 ---
 

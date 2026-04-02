@@ -113,6 +113,11 @@ async fn main() -> std::io::Result<()> {
 
     log::info!("Listening on http://{}", &addr);
 
+    let workers: usize = std::env::var("WORKERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4);
+
     HttpServer::new(move || {
         let routes = generate_route_list(App);
         let leptos_options = &conf.leptos_options;
@@ -172,6 +177,7 @@ async fn main() -> std::io::Result<()> {
             })
             .app_data(web::Data::new(leptos_options.to_owned()))
     })
+    .workers(workers)
     .bind(&addr)?
     .run()
     .await
