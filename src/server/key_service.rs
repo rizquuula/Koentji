@@ -55,7 +55,10 @@ pub async fn list_keys(
         for p in &params {
             q = q.bind(p);
         }
-        q.fetch_one(pool.get_ref()).await.map_err(|e| ServerFnError::new(e.to_string()))?
+        q.fetch_one(pool.get_ref()).await.map_err(|e| {
+            log::error!("Failed to count keys: {}", e);
+            ServerFnError::new(e.to_string())
+        })?
     };
 
     let keys: Vec<AuthenticationKey> = {
@@ -63,9 +66,13 @@ pub async fn list_keys(
         for p in &params {
             q = q.bind(p);
         }
-        q.fetch_all(pool.get_ref()).await.map_err(|e| ServerFnError::new(e.to_string()))?
+        q.fetch_all(pool.get_ref()).await.map_err(|e| {
+            log::error!("Failed to list keys: {}", e);
+            ServerFnError::new(e.to_string())
+        })?
     };
 
+    log::debug!("list_keys: page={}, total={}", page, total);
     Ok(KeyListResponse {
         keys,
         total,
@@ -136,8 +143,12 @@ pub async fn create_key(req: CreateKeyRequest) -> Result<AuthenticationKey, Serv
     .bind("admin")
     .fetch_one(pool.get_ref())
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .map_err(|e| {
+        log::error!("Failed to create key: {}", e);
+        ServerFnError::new(e.to_string())
+    })?;
 
+    log::info!("Key created: id={}, device={}", created.id, created.device_id);
     Ok(created)
 }
 
@@ -205,8 +216,12 @@ pub async fn update_key(id: i32, req: UpdateKeyRequest) -> Result<Authentication
     .bind(expired_at)
     .fetch_one(pool.get_ref())
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .map_err(|e| {
+        log::error!("Failed to update key id={}: {}", id, e);
+        ServerFnError::new(e.to_string())
+    })?;
 
+    log::info!("Key updated: id={}", id);
     // Invalidate auth cache for this key
     invalidate_cache_for_key(pool.get_ref(), id).await;
 
@@ -250,8 +265,12 @@ pub async fn delete_key(id: i32) -> Result<(), ServerFnError> {
         .bind(id)
         .execute(pool.get_ref())
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .map_err(|e| {
+            log::error!("Failed to delete key id={}: {}", id, e);
+            ServerFnError::new(e.to_string())
+        })?;
 
+    log::info!("Key revoked: id={}", id);
     invalidate_cache_for_key(pool.get_ref(), id).await;
 
     Ok(())
@@ -286,8 +305,12 @@ pub async fn reset_rate_limit(id: i32) -> Result<(), ServerFnError> {
     .bind(id)
     .execute(pool.get_ref())
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .map_err(|e| {
+        log::error!("Failed to reset rate limit for key id={}: {}", id, e);
+        ServerFnError::new(e.to_string())
+    })?;
 
+    log::info!("Rate limit reset: key id={}", id);
     invalidate_cache_for_key(pool.get_ref(), id).await;
 
     Ok(())

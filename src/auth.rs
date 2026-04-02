@@ -15,8 +15,10 @@ pub async fn login(username: String, password: String) -> Result<bool, ServerFnE
         session
             .insert("username", &username)
             .map_err(|e| ServerFnError::new(format!("Session error: {}", e)))?;
+        log::info!("Admin login success: username={}", username);
         Ok(true)
     } else {
+        log::warn!("Admin login failed: username={}", username);
         Ok(false)
     }
 }
@@ -27,7 +29,9 @@ pub async fn logout() -> Result<(), ServerFnError> {
     use leptos_actix::extract;
 
     let session = extract::<Session>().await?;
+    let username = session.get::<String>("username").ok().flatten().unwrap_or_default();
     session.purge();
+    log::info!("Admin logout: username={}", username);
     Ok(())
 }
 

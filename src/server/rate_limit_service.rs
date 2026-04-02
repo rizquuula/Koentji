@@ -54,8 +54,12 @@ pub async fn create_rate_limit_interval(
     .bind(req.duration_seconds)
     .fetch_one(pool.get_ref())
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .map_err(|e| {
+        log::error!("Failed to create rate limit interval '{}': {}", req.name, e);
+        ServerFnError::new(e.to_string())
+    })?;
 
+    log::info!("Rate limit interval created: id={}, name={}", created.id, created.name);
     Ok(created)
 }
 
@@ -86,8 +90,12 @@ pub async fn update_rate_limit_interval(
     .bind(req.is_active)
     .fetch_one(pool.get_ref())
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .map_err(|e| {
+        log::error!("Failed to update rate limit interval id={}: {}", id, e);
+        ServerFnError::new(e.to_string())
+    })?;
 
+    log::info!("Rate limit interval updated: id={}", id);
     Ok(updated)
 }
 
@@ -108,6 +116,7 @@ pub async fn delete_rate_limit_interval(id: i32) -> Result<(), ServerFnError> {
     .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     if count > 0 {
+        log::warn!("Cannot delete rate limit interval id={} — in use by {} subscription type(s)", id, count);
         return Err(ServerFnError::new(
             "Cannot delete interval that is in use by subscription types. Deactivate it instead.",
         ));
@@ -117,7 +126,11 @@ pub async fn delete_rate_limit_interval(id: i32) -> Result<(), ServerFnError> {
         .bind(id)
         .execute(pool.get_ref())
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .map_err(|e| {
+            log::error!("Failed to delete rate limit interval id={}: {}", id, e);
+            ServerFnError::new(e.to_string())
+        })?;
 
+    log::info!("Rate limit interval deleted: id={}", id);
     Ok(())
 }

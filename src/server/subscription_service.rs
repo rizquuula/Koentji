@@ -55,8 +55,12 @@ pub async fn create_subscription_type(
     .bind(req.rate_limit_interval_id)
     .fetch_one(pool.get_ref())
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .map_err(|e| {
+        log::error!("Failed to create subscription type '{}': {}", req.name, e);
+        ServerFnError::new(e.to_string())
+    })?;
 
+    log::info!("Subscription type created: id={}, name={}", created.id, created.name);
     Ok(created)
 }
 
@@ -89,8 +93,12 @@ pub async fn update_subscription_type(
     .bind(req.is_active)
     .fetch_one(pool.get_ref())
     .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
+    .map_err(|e| {
+        log::error!("Failed to update subscription type id={}: {}", id, e);
+        ServerFnError::new(e.to_string())
+    })?;
 
+    log::info!("Subscription type updated: id={}", id);
     Ok(updated)
 }
 
@@ -111,6 +119,7 @@ pub async fn delete_subscription_type(id: i32) -> Result<(), ServerFnError> {
     .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     if count > 0 {
+        log::warn!("Cannot delete subscription type id={} — in use by {} key(s)", id, count);
         return Err(ServerFnError::new(
             "Cannot delete subscription type that is in use by API keys. Deactivate it instead.",
         ));
@@ -120,7 +129,11 @@ pub async fn delete_subscription_type(id: i32) -> Result<(), ServerFnError> {
         .bind(id)
         .execute(pool.get_ref())
         .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .map_err(|e| {
+            log::error!("Failed to delete subscription type id={}: {}", id, e);
+            ServerFnError::new(e.to_string())
+        })?;
 
+    log::info!("Subscription type deleted: id={}", id);
     Ok(())
 }

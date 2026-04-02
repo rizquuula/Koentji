@@ -86,6 +86,9 @@ async fn main() -> std::io::Result<()> {
     use utoipa_swagger_ui::SwaggerUi;
 
     dotenvy::dotenv().ok();
+    env_logger::init();
+
+    log::info!("Starting Koentji server...");
 
     let pool = koentji::db::create_pool().await;
     koentji::db::run_migrations(&pool).await;
@@ -94,10 +97,12 @@ async fn main() -> std::io::Result<()> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(900); // 15 minutes default
+    log::info!("Auth cache TTL: {}s", cache_ttl);
     let auth_cache = std::sync::Arc::new(koentji::cache::AuthCache::new(cache_ttl));
     koentji::server::key_service::set_global_auth_cache(auth_cache.clone());
 
     let secret_key = std::env::var("SECRET_KEY").unwrap_or_else(|_| {
+        log::warn!("SECRET_KEY not set, using insecure default — set SECRET_KEY in production");
         "a-very-secret-key-that-should-be-at-least-64-bytes-long-for-security-purposes-change-me"
             .to_string()
     });
@@ -106,7 +111,7 @@ async fn main() -> std::io::Result<()> {
     let conf = get_configuration(None).unwrap();
     let addr = conf.leptos_options.site_addr;
 
-    println!("listening on http://{}", &addr);
+    log::info!("Listening on http://{}", &addr);
 
     HttpServer::new(move || {
         let routes = generate_route_list(App);
@@ -200,12 +205,16 @@ async fn auth_endpoint(
     let free_trial_subscription_name = std::env::var("FREE_TRIAL_SUBSCRIPTION_NAME")
         .unwrap_or_else(|_| "free".to_string());
 
+    log::debug!("Auth request: device={}", body.auth_device);
+
     // 1. Check cache first
     let cached = auth_cache.get(&body.auth_key, &body.auth_device).await;
 
     let (key, interval_seconds) = if let Some(entry) = cached {
+        log::debug!("Cache hit: device={}", body.auth_device);
         (entry.key_data, entry.interval_seconds)
     } else {
+        log::debug!("Cache miss: device={}, querying DB", body.auth_device);
         // Cache miss — query DB with JOIN for interval
         let row = sqlx::query_as::<_, AuthKeyWithInterval>(
             r#"SELECT ak.*, COALESCE(rli.duration_seconds, 86400) as interval_seconds
@@ -219,7 +228,8 @@ async fn auth_endpoint(
         .await;
 
         match row {
-            Err(_) => {
+            Err(e) => {
+                log::error!("DB query failed for device={}: {}", body.auth_device, e);
                 return actix_web::HttpResponse::InternalServerError().json(json!({
                     "error": { "en": "Internal server error." },
                     "message": "Internal server error."
@@ -255,13 +265,21 @@ async fn auth_endpoint(
 
                 match upserted {
                     Ok(Some((k, interval_secs))) => (k, interval_secs),
-                    _ => {
+                    Ok(None) => {
+                        log::warn!("Auth failed - unknown key for device={}", body.auth_device);
                         return actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(json!({
                             "error": {
                                 "en": "Authentication key invalid or not exists in our system.",
                                 "id": "Authentication key tidak valid atau tidak ditemukan di sistem kami."
                             },
                             "message": "Authentication key invalid or not exists in our system."
+                        }));
+                    }
+                    Err(e) => {
+                        log::error!("Free trial upsert failed for device={}: {}", body.auth_device, e);
+                        return actix_web::HttpResponse::InternalServerError().json(json!({
+                            "error": { "en": "Internal server error." },
+                            "message": "Internal server error."
                         }));
                     }
                 }
@@ -272,6 +290,7 @@ async fn auth_endpoint(
     // 2. Check revoked
     if key.deleted_at.is_some() {
         let deleted_at = key.deleted_at.unwrap().to_rfc3339();
+        log::warn!("Auth failed - revoked key: device={}, revoked_at={}", key.device_id, deleted_at);
         return actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(json!({
             "error": {
                 "en": format!("Authentication key already revoked and can't be used since {}.", deleted_at),
@@ -284,6 +303,7 @@ async fn auth_endpoint(
     // 3. Check expired
     if key.is_expired() {
         let expired_at = key.expired_at.unwrap().to_rfc3339();
+        log::warn!("Auth failed - expired key: device={}, expired_at={}", key.device_id, expired_at);
         return actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(json!({
             "error": {
                 "en": format!("Authentication key expired and need renewal per {}.", expired_at),
@@ -306,6 +326,7 @@ async fn auth_endpoint(
     };
 
     if new_remaining <= 0 {
+        log::warn!("Auth failed - rate limit exceeded: device={}, subscription={:?}", key.device_id, key.subscription);
         return actix_web::HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).json(json!({
             "error": {
                 "en": "Rate limit exceeded. Please try again later or upgrade your subscription.",
@@ -326,7 +347,8 @@ async fn auth_endpoint(
     .execute(pool.get_ref())
     .await;
 
-    if update_result.is_err() {
+    if let Err(e) = update_result {
+        log::error!("Failed to update rate limit for device={}: {}", key.device_id, e);
         return actix_web::HttpResponse::InternalServerError().json(json!({
             "error": { "en": "Internal server error." },
             "message": "Internal server error."
@@ -349,6 +371,8 @@ async fn auth_endpoint(
             },
         )
         .await;
+
+    log::info!("Auth success: device={}, subscription={:?}, remaining={}", key.device_id, key.subscription, new_remaining);
 
     // 6. Return success
     actix_web::HttpResponse::Ok().json(json!({
@@ -493,6 +517,9 @@ async fn try_upsert_free_trial(
         .fetch_optional(pool)
         .await?;
 
+        if row.is_some() {
+            log::info!("Free trial created: device={}, subscription={}", device_id, sub_name);
+        }
         return Ok(row.map(|r| (r, interval_seconds)));
     }
 
@@ -521,6 +548,9 @@ async fn try_upsert_free_trial(
         .fetch_optional(pool)
         .await?;
 
+        if row.is_some() {
+            log::info!("Device bound to existing key: device={}", device_id);
+        }
         return Ok(row.map(|r| (r.to_auth_key(), r.interval_seconds)));
     }
 

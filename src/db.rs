@@ -35,11 +35,11 @@ pub async fn run_migrations(pool: &PgPool) {
         .expect("Failed to query schema_migrations");
 
         if already_applied {
-            println!("Migration already applied, skipping: {}", filename);
+            log::debug!("Migration already applied, skipping: {}", filename);
             continue;
         }
 
-        println!("Running migration: {}", filename);
+        log::info!("Running migration: {}", filename);
         sqlx::raw_sql(sql)
             .execute(pool)
             .await
@@ -51,6 +51,6 @@ pub async fn run_migrations(pool: &PgPool) {
             .await
             .unwrap_or_else(|e| panic!("Failed to record migration {}: {}", filename, e));
 
-        println!("Migration applied: {}", filename);
+        log::info!("Migration applied: {}", filename);
     }
 }
