@@ -40,5 +40,4 @@ impl AuthCache {
             .invalidate(&(auth_key.to_string(), device_id.to_string()))
             .await;
     }
-
 }
