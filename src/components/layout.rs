@@ -57,6 +57,7 @@ pub fn Layout(
                                 <a href="/subscriptions" class=subscriptions_class>"Subscriptions"</a>
                                 <a href="/limits-interval" class=rate_limits_class>"Limits Interval"</a>
                                 <a href="/quickstart" class=quickstart_class>"Quickstart"</a>
+                                <a href="/docs" target="_blank" class="px-4 py-2 text-gray-500 hover:text-gray-700 font-medium">"Swagger"</a>
                             </div>
                         </div>
                         <div class="flex items-center space-x-4">
