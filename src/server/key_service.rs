@@ -246,16 +246,15 @@ pub async fn update_key(
 
 #[cfg(feature = "ssr")]
 async fn invalidate_cache_for_key(pool: &sqlx::PgPool, id: i32) {
-    // Look up the key to get auth_key for cache invalidation
-    if let Ok(key) =
-        sqlx::query_scalar::<_, String>("SELECT key FROM authentication_keys WHERE id = $1")
-            .bind(id)
-            .fetch_one(pool)
-            .await
+    if let Ok((key, device_id)) = sqlx::query_as::<_, (String, String)>(
+        "SELECT key, device_id FROM authentication_keys WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
     {
-        // We invalidate by key (all devices) since we don't know the device_id
         if let Some(cache) = GLOBAL_AUTH_CACHE.get() {
-            cache.invalidate_by_key(&key).await;
+            cache.invalidate(&key, &device_id).await;
         }
     }
 }

@@ -41,9 +41,4 @@ impl AuthCache {
             .await;
     }
 
-    pub async fn invalidate_by_key(&self, _auth_key: &str) {
-        // Invalidate all entries since we can't efficiently filter by auth_key alone
-        self.cache.invalidate_all();
-        self.cache.run_pending_tasks().await;
-    }
 }
