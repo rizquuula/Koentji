@@ -23,7 +23,8 @@ pub async fn get_dashboard_stats(
 
     // Total counts
     let total: i64 = sqlx::query_scalar(&format!(
-        "SELECT COUNT(*) FROM authentication_keys WHERE 1=1 {}", date_filter
+        "SELECT COUNT(*) FROM authentication_keys WHERE 1=1 {}",
+        date_filter
     ))
     .fetch_one(pool.get_ref())
     .await
@@ -44,7 +45,8 @@ pub async fn get_dashboard_stats(
     .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     let deleted: i64 = sqlx::query_scalar(&format!(
-        "SELECT COUNT(*) FROM authentication_keys WHERE deleted_at IS NOT NULL {}", date_filter
+        "SELECT COUNT(*) FROM authentication_keys WHERE deleted_at IS NOT NULL {}",
+        date_filter
     ))
     .fetch_one(pool.get_ref())
     .await

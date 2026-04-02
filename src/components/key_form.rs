@@ -13,7 +13,11 @@ pub fn KeyForm(
 
     let subs_resource = Resource::new(|| (), |_| list_subscription_types());
 
-    let device_id = RwSignal::new(key.as_ref().map(|k| k.device_id.clone()).unwrap_or_default());
+    let device_id = RwSignal::new(
+        key.as_ref()
+            .map(|k| k.device_id.clone())
+            .unwrap_or_default(),
+    );
     let username = RwSignal::new(
         key.as_ref()
             .and_then(|k| k.username.clone())
@@ -62,12 +66,20 @@ pub fn KeyForm(
             let result = if is_editing {
                 let req = UpdateKeyRequest {
                     device_id: Some(device_id),
-                    username: if username.is_empty() { None } else { Some(username) },
+                    username: if username.is_empty() {
+                        None
+                    } else {
+                        Some(username)
+                    },
                     email: if email.is_empty() { None } else { Some(email) },
                     subscription: None, // derived from subscription_type_id on server
                     subscription_type_id: st_id,
                     rate_limit_daily: rate_limit.parse().ok(),
-                    expired_at: if expired_at.is_empty() { None } else { Some(expired_at) },
+                    expired_at: if expired_at.is_empty() {
+                        None
+                    } else {
+                        Some(expired_at)
+                    },
                 };
                 crate::server::key_service::update_key(editing_id.unwrap(), req)
                     .await
@@ -75,14 +87,24 @@ pub fn KeyForm(
             } else {
                 let req = CreateKeyRequest {
                     device_id,
-                    username: if username.is_empty() { None } else { Some(username) },
+                    username: if username.is_empty() {
+                        None
+                    } else {
+                        Some(username)
+                    },
                     email: if email.is_empty() { None } else { Some(email) },
                     subscription: None, // derived from subscription_type_id on server
                     subscription_type_id: st_id,
                     rate_limit_daily: rate_limit.parse().ok(),
-                    expired_at: if expired_at.is_empty() { None } else { Some(expired_at) },
+                    expired_at: if expired_at.is_empty() {
+                        None
+                    } else {
+                        Some(expired_at)
+                    },
                 };
-                crate::server::key_service::create_key(req).await.map(|_| ())
+                crate::server::key_service::create_key(req)
+                    .await
+                    .map(|_| ())
             };
 
             submitting.set(false);

@@ -51,9 +51,7 @@ pub struct SubscriptionType {
 
 impl AuthenticationKey {
     pub fn is_expired(&self) -> bool {
-        self.expired_at
-            .map(|exp| exp < Utc::now())
-            .unwrap_or(false)
+        self.expired_at.map(|exp| exp < Utc::now()).unwrap_or(false)
     }
 
     pub fn is_active(&self) -> bool {

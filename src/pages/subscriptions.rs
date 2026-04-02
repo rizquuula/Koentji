@@ -227,16 +227,32 @@ fn SubscriptionForm(
     let intervals_resource = Resource::new(|| (), |_| list_rate_limit_intervals());
 
     let name = RwSignal::new(
-        editing.get_untracked().as_ref().map(|s| s.name.clone()).unwrap_or_default(),
+        editing
+            .get_untracked()
+            .as_ref()
+            .map(|s| s.name.clone())
+            .unwrap_or_default(),
     );
     let display_name = RwSignal::new(
-        editing.get_untracked().as_ref().map(|s| s.display_name.clone()).unwrap_or_default(),
+        editing
+            .get_untracked()
+            .as_ref()
+            .map(|s| s.display_name.clone())
+            .unwrap_or_default(),
     );
     let rate_limit_amount = RwSignal::new(
-        editing.get_untracked().as_ref().map(|s| s.rate_limit_amount.to_string()).unwrap_or_else(|| "6000".to_string()),
+        editing
+            .get_untracked()
+            .as_ref()
+            .map(|s| s.rate_limit_amount.to_string())
+            .unwrap_or_else(|| "6000".to_string()),
     );
     let rate_limit_interval_id = RwSignal::new(
-        editing.get_untracked().as_ref().map(|s| s.rate_limit_interval_id.to_string()).unwrap_or_default(),
+        editing
+            .get_untracked()
+            .as_ref()
+            .map(|s| s.rate_limit_interval_id.to_string())
+            .unwrap_or_default(),
     );
     let submitting = RwSignal::new(false);
 

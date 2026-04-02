@@ -30,9 +30,7 @@ pub fn KeysPage() -> impl IntoView {
         move |(p, s, sub, st, _)| list_keys(p, s, sub, st),
     );
 
-    let keys_signal = Signal::derive(move || {
-        keys_resource.get().and_then(|r| r.ok())
-    });
+    let keys_signal = Signal::derive(move || keys_resource.get().and_then(|r| r.ok()));
 
     let on_edit = Callback::new(move |key: AuthenticationKey| {
         editing_key.set(Some(key));

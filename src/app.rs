@@ -1,5 +1,8 @@
 use crate::components::toast::provide_toast_context;
-use crate::pages::{dashboard::DashboardPage, keys::KeysPage, login::LoginPage, quickstart::QuickstartPage, rate_limits::LimitsIntervalPage, subscriptions::SubscriptionsPage};
+use crate::pages::{
+    dashboard::DashboardPage, keys::KeysPage, login::LoginPage, quickstart::QuickstartPage,
+    rate_limits::LimitsIntervalPage, subscriptions::SubscriptionsPage,
+};
 use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::{

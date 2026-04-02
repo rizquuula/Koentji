@@ -43,7 +43,10 @@ pub fn KeyRow(
 
     let handle_copy = move |_| {
         if let Some(k) = revealed_key.get() {
-            let _ = js_sys::eval(&format!("navigator.clipboard.writeText('{}')", k.replace('\'', "\\'")));
+            let _ = js_sys::eval(&format!(
+                "navigator.clipboard.writeText('{}')",
+                k.replace('\'', "\\'")
+            ));
         }
     };
 

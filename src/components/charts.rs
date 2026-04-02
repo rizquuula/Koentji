@@ -37,9 +37,21 @@ pub fn Charts(#[prop(into)] stats: Signal<Option<DashboardStats>>) -> impl IntoV
 fn render_charts(stats: &DashboardStats) {
     use wasm_bindgen::JsValue;
 
-    let sub_labels: Vec<String> = stats.subscription_distribution.iter().map(|(l, _)| l.clone()).collect();
-    let sub_values: Vec<i64> = stats.subscription_distribution.iter().map(|(_, v)| *v).collect();
-    let rate_labels: Vec<String> = stats.rate_limit_buckets.iter().map(|(l, _)| l.clone()).collect();
+    let sub_labels: Vec<String> = stats
+        .subscription_distribution
+        .iter()
+        .map(|(l, _)| l.clone())
+        .collect();
+    let sub_values: Vec<i64> = stats
+        .subscription_distribution
+        .iter()
+        .map(|(_, v)| *v)
+        .collect();
+    let rate_labels: Vec<String> = stats
+        .rate_limit_buckets
+        .iter()
+        .map(|(l, _)| l.clone())
+        .collect();
     let rate_values: Vec<i64> = stats.rate_limit_buckets.iter().map(|(_, v)| *v).collect();
     let trend_labels: Vec<String> = stats.daily_trend.iter().map(|(l, _)| l.clone()).collect();
     let trend_values: Vec<i64> = stats.daily_trend.iter().map(|(_, v)| *v).collect();
@@ -62,6 +74,8 @@ fn render_charts(stats: &DashboardStats) {
         );
 
         // Defer render so canvas elements are mounted in the DOM first
-        let _ = js_sys::eval("setTimeout(function(){ if(typeof renderCharts === 'function') renderCharts(); }, 0)");
+        let _ = js_sys::eval(
+            "setTimeout(function(){ if(typeof renderCharts === 'function') renderCharts(); }, 0)",
+        );
     }
 }

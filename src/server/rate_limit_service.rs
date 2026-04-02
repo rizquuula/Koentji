@@ -59,7 +59,11 @@ pub async fn create_rate_limit_interval(
         ServerFnError::new(e.to_string())
     })?;
 
-    log::info!("Rate limit interval created: id={}, name={}", created.id, created.name);
+    log::info!(
+        "Rate limit interval created: id={}, name={}",
+        created.id,
+        created.name
+    );
     Ok(created)
 }
 
@@ -116,7 +120,11 @@ pub async fn delete_rate_limit_interval(id: i32) -> Result<(), ServerFnError> {
     .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     if count > 0 {
-        log::warn!("Cannot delete rate limit interval id={} — in use by {} subscription type(s)", id, count);
+        log::warn!(
+            "Cannot delete rate limit interval id={} — in use by {} subscription type(s)",
+            id,
+            count
+        );
         return Err(ServerFnError::new(
             "Cannot delete interval that is in use by subscription types. Deactivate it instead.",
         ));

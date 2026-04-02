@@ -60,7 +60,11 @@ pub async fn create_subscription_type(
         ServerFnError::new(e.to_string())
     })?;
 
-    log::info!("Subscription type created: id={}, name={}", created.id, created.name);
+    log::info!(
+        "Subscription type created: id={}, name={}",
+        created.id,
+        created.name
+    );
     Ok(created)
 }
 
@@ -119,7 +123,11 @@ pub async fn delete_subscription_type(id: i32) -> Result<(), ServerFnError> {
     .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     if count > 0 {
-        log::warn!("Cannot delete subscription type id={} — in use by {} key(s)", id, count);
+        log::warn!(
+            "Cannot delete subscription type id={} — in use by {} key(s)",
+            id,
+            count
+        );
         return Err(ServerFnError::new(
             "Cannot delete subscription type that is in use by API keys. Deactivate it instead.",
         ));

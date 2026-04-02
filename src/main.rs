@@ -200,10 +200,10 @@ async fn auth_endpoint(
     use chrono::Utc;
     use serde_json::json;
 
-    let free_trial_key = std::env::var("FREE_TRIAL_KEY")
-        .unwrap_or_else(|_| "FREE_TRIAL".to_string());
-    let free_trial_subscription_name = std::env::var("FREE_TRIAL_SUBSCRIPTION_NAME")
-        .unwrap_or_else(|_| "free".to_string());
+    let free_trial_key =
+        std::env::var("FREE_TRIAL_KEY").unwrap_or_else(|_| "FREE_TRIAL".to_string());
+    let free_trial_subscription_name =
+        std::env::var("FREE_TRIAL_SUBSCRIPTION_NAME").unwrap_or_else(|_| "free".to_string());
 
     log::debug!("Auth request: device={}", body.auth_device);
 
@@ -276,7 +276,11 @@ async fn auth_endpoint(
                         }));
                     }
                     Err(e) => {
-                        log::error!("Free trial upsert failed for device={}: {}", body.auth_device, e);
+                        log::error!(
+                            "Free trial upsert failed for device={}: {}",
+                            body.auth_device,
+                            e
+                        );
                         return actix_web::HttpResponse::InternalServerError().json(json!({
                             "error": { "en": "Internal server error." },
                             "message": "Internal server error."
@@ -290,7 +294,11 @@ async fn auth_endpoint(
     // 2. Check revoked
     if key.deleted_at.is_some() {
         let deleted_at = key.deleted_at.unwrap().to_rfc3339();
-        log::warn!("Auth failed - revoked key: device={}, revoked_at={}", key.device_id, deleted_at);
+        log::warn!(
+            "Auth failed - revoked key: device={}, revoked_at={}",
+            key.device_id,
+            deleted_at
+        );
         return actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(json!({
             "error": {
                 "en": format!("Authentication key already revoked and can't be used since {}.", deleted_at),
@@ -303,7 +311,11 @@ async fn auth_endpoint(
     // 3. Check expired
     if key.is_expired() {
         let expired_at = key.expired_at.unwrap().to_rfc3339();
-        log::warn!("Auth failed - expired key: device={}, expired_at={}", key.device_id, expired_at);
+        log::warn!(
+            "Auth failed - expired key: device={}, expired_at={}",
+            key.device_id,
+            expired_at
+        );
         return actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(json!({
             "error": {
                 "en": format!("Authentication key expired and need renewal per {}.", expired_at),
@@ -326,7 +338,11 @@ async fn auth_endpoint(
     };
 
     if new_remaining <= 0 {
-        log::warn!("Auth failed - rate limit exceeded: device={}, subscription={:?}", key.device_id, key.subscription);
+        log::warn!(
+            "Auth failed - rate limit exceeded: device={}, subscription={:?}",
+            key.device_id,
+            key.subscription
+        );
         return actix_web::HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).json(json!({
             "error": {
                 "en": "Rate limit exceeded. Please try again later or upgrade your subscription.",
@@ -348,7 +364,11 @@ async fn auth_endpoint(
     .await;
 
     if let Err(e) = update_result {
-        log::error!("Failed to update rate limit for device={}: {}", key.device_id, e);
+        log::error!(
+            "Failed to update rate limit for device={}: {}",
+            key.device_id,
+            e
+        );
         return actix_web::HttpResponse::InternalServerError().json(json!({
             "error": { "en": "Internal server error." },
             "message": "Internal server error."
@@ -372,7 +392,12 @@ async fn auth_endpoint(
         )
         .await;
 
-    log::info!("Auth success: device={}, subscription={:?}, remaining={}", key.device_id, key.subscription, new_remaining);
+    log::info!(
+        "Auth success: device={}, subscription={:?}, remaining={}",
+        key.device_id,
+        key.subscription,
+        new_remaining
+    );
 
     // 6. Return success
     actix_web::HttpResponse::Ok().json(json!({
@@ -463,14 +488,15 @@ async fn try_upsert_free_trial(
         .fetch_optional(pool)
         .await?;
 
-        let (sub_name, sub_type_id, rate_limit, interval_id, interval_seconds) = if let Some(s) = sub {
+        let (sub_name, sub_type_id, rate_limit, interval_id, interval_seconds) = if let Some(s) =
+            sub
+        {
             // Look up the interval duration
-            let dur: Option<(i64,)> = sqlx::query_as(
-                "SELECT duration_seconds FROM rate_limit_intervals WHERE id = $1",
-            )
-            .bind(s.rate_limit_interval_id)
-            .fetch_optional(pool)
-            .await?;
+            let dur: Option<(i64,)> =
+                sqlx::query_as("SELECT duration_seconds FROM rate_limit_intervals WHERE id = $1")
+                    .bind(s.rate_limit_interval_id)
+                    .fetch_optional(pool)
+                    .await?;
             (
                 s.name,
                 Some(s.id),
@@ -518,7 +544,11 @@ async fn try_upsert_free_trial(
         .await?;
 
         if row.is_some() {
-            log::info!("Free trial created: device={}, subscription={}", device_id, sub_name);
+            log::info!(
+                "Free trial created: device={}, subscription={}",
+                device_id,
+                sub_name
+            );
         }
         return Ok(row.map(|r| (r, interval_seconds)));
     }

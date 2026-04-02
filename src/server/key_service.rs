@@ -33,8 +33,11 @@ pub async fn list_keys(
     }
 
     match status.as_str() {
-        "active" => conditions.push("deleted_at IS NULL AND (expired_at IS NULL OR expired_at > NOW())".to_string()),
-        "expired" => conditions.push("expired_at IS NOT NULL AND expired_at <= NOW() AND deleted_at IS NULL".to_string()),
+        "active" => conditions
+            .push("deleted_at IS NULL AND (expired_at IS NULL OR expired_at > NOW())".to_string()),
+        "expired" => conditions.push(
+            "expired_at IS NOT NULL AND expired_at <= NOW() AND deleted_at IS NULL".to_string(),
+        ),
         "deleted" => conditions.push("deleted_at IS NOT NULL".to_string()),
         _ => {}
     }
@@ -42,7 +45,10 @@ pub async fn list_keys(
     let where_clause = conditions.join(" AND ");
 
     // Build count query
-    let count_sql = format!("SELECT COUNT(*) as count FROM authentication_keys WHERE {}", where_clause);
+    let count_sql = format!(
+        "SELECT COUNT(*) as count FROM authentication_keys WHERE {}",
+        where_clause
+    );
     let list_sql = format!(
         "SELECT * FROM authentication_keys WHERE {} ORDER BY created_at DESC LIMIT {} OFFSET {}",
         where_clause, per_page, offset
@@ -107,24 +113,29 @@ pub async fn create_key(req: CreateKeyRequest) -> Result<AuthenticationKey, Serv
                     Some(st.name),
                     Some(st.rate_limit_interval_id),
                 ),
-                None => (req.rate_limit_daily.unwrap_or(6000), req.subscription.clone(), None),
+                None => (
+                    req.rate_limit_daily.unwrap_or(6000),
+                    req.subscription.clone(),
+                    None,
+                ),
             }
         } else {
-            (req.rate_limit_daily.unwrap_or(6000), req.subscription.clone(), None)
+            (
+                req.rate_limit_daily.unwrap_or(6000),
+                req.subscription.clone(),
+                None,
+            )
         };
 
-    let expired_at: Option<chrono::DateTime<chrono::Utc>> = req
-        .expired_at
-        .as_ref()
-        .and_then(|s| {
-            if s.is_empty() {
-                None
-            } else {
-                chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M")
-                    .ok()
-                    .map(|ndt| ndt.and_utc())
-            }
-        });
+    let expired_at: Option<chrono::DateTime<chrono::Utc>> = req.expired_at.as_ref().and_then(|s| {
+        if s.is_empty() {
+            None
+        } else {
+            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M")
+                .ok()
+                .map(|ndt| ndt.and_utc())
+        }
+    });
 
     let created = sqlx::query_as::<_, AuthenticationKey>(
         r#"INSERT INTO authentication_keys (key, device_id, subscription, subscription_type_id, rate_limit_daily, rate_limit_remaining, rate_limit_interval_id, username, email, expired_at, created_by)
@@ -148,19 +159,27 @@ pub async fn create_key(req: CreateKeyRequest) -> Result<AuthenticationKey, Serv
         ServerFnError::new(e.to_string())
     })?;
 
-    log::info!("Key created: id={}, device={}", created.id, created.device_id);
+    log::info!(
+        "Key created: id={}, device={}",
+        created.id,
+        created.device_id
+    );
     Ok(created)
 }
 
 #[server]
-pub async fn update_key(id: i32, req: UpdateKeyRequest) -> Result<AuthenticationKey, ServerFnError> {
+pub async fn update_key(
+    id: i32,
+    req: UpdateKeyRequest,
+) -> Result<AuthenticationKey, ServerFnError> {
     use leptos_actix::extract;
     use sqlx::PgPool;
 
     let pool = extract::<actix_web::web::Data<PgPool>>().await?;
 
     // Look up subscription type for name + interval if changing subscription
-    let (subscription_name, rate_limit_interval_id) = if let Some(st_id) = req.subscription_type_id {
+    let (subscription_name, rate_limit_interval_id) = if let Some(st_id) = req.subscription_type_id
+    {
         let st = sqlx::query_as::<_, crate::models::SubscriptionType>(
             "SELECT * FROM subscription_types WHERE id = $1",
         )
@@ -177,18 +196,15 @@ pub async fn update_key(id: i32, req: UpdateKeyRequest) -> Result<Authentication
         (req.subscription.clone(), None)
     };
 
-    let expired_at: Option<chrono::DateTime<chrono::Utc>> = req
-        .expired_at
-        .as_ref()
-        .and_then(|s| {
-            if s.is_empty() {
-                None
-            } else {
-                chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M")
-                    .ok()
-                    .map(|ndt| ndt.and_utc())
-            }
-        });
+    let expired_at: Option<chrono::DateTime<chrono::Utc>> = req.expired_at.as_ref().and_then(|s| {
+        if s.is_empty() {
+            None
+        } else {
+            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M")
+                .ok()
+                .map(|ndt| ndt.and_utc())
+        }
+    });
 
     let updated = sqlx::query_as::<_, AuthenticationKey>(
         r#"UPDATE authentication_keys SET
@@ -231,12 +247,11 @@ pub async fn update_key(id: i32, req: UpdateKeyRequest) -> Result<Authentication
 #[cfg(feature = "ssr")]
 async fn invalidate_cache_for_key(pool: &sqlx::PgPool, id: i32) {
     // Look up the key to get auth_key for cache invalidation
-    if let Ok(key) = sqlx::query_scalar::<_, String>(
-        "SELECT key FROM authentication_keys WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_one(pool)
-    .await
+    if let Ok(key) =
+        sqlx::query_scalar::<_, String>("SELECT key FROM authentication_keys WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
     {
         // We invalidate by key (all devices) since we don't know the device_id
         if let Some(cache) = GLOBAL_AUTH_CACHE.get() {
@@ -261,14 +276,16 @@ pub async fn delete_key(id: i32) -> Result<(), ServerFnError> {
 
     let pool = extract::<actix_web::web::Data<PgPool>>().await?;
 
-    sqlx::query("UPDATE authentication_keys SET deleted_at = NOW(), deleted_by = 'admin' WHERE id = $1")
-        .bind(id)
-        .execute(pool.get_ref())
-        .await
-        .map_err(|e| {
-            log::error!("Failed to delete key id={}: {}", id, e);
-            ServerFnError::new(e.to_string())
-        })?;
+    sqlx::query(
+        "UPDATE authentication_keys SET deleted_at = NOW(), deleted_by = 'admin' WHERE id = $1",
+    )
+    .bind(id)
+    .execute(pool.get_ref())
+    .await
+    .map_err(|e| {
+        log::error!("Failed to delete key id={}: {}", id, e);
+        ServerFnError::new(e.to_string())
+    })?;
 
     log::info!("Key revoked: id={}", id);
     invalidate_cache_for_key(pool.get_ref(), id).await;

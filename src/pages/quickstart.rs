@@ -48,7 +48,7 @@ pub fn QuickstartPage() -> impl IntoView {
                                 <span class="text-xs text-gray-500">"curl"</span>
                             </div>
                             <pre class="bg-gray-900 text-green-400 text-sm p-4 overflow-x-auto"><code>
-"curl -X POST https://your-domain.com/v1/auth \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"auth_key\": \"klab_your_api_key_here\",\n    \"auth_device\": \"device_id_here\",\n    \"rate_limit_usage\": 1\n  }'"
+    "curl -X POST https://your-domain.com/v1/auth \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"auth_key\": \"klab_your_api_key_here\",\n    \"auth_device\": \"device_id_here\",\n    \"rate_limit_usage\": 1\n  }'"
                             </code></pre>
                         </div>
 
@@ -59,7 +59,7 @@ pub fn QuickstartPage() -> impl IntoView {
                                 <span class="text-xs text-green-400">"200 OK"</span>
                             </div>
                             <pre class="bg-gray-900 text-gray-300 text-sm p-4 overflow-x-auto"><code>
-"{\n  \"status\": \"success\",\n  \"data\": {\n    \"key\": \"klab_your_api_key_here\",\n    \"device\": \"device_id_here\",\n    \"subscription\": \"pro\",\n    \"username\": \"john\",\n    \"email\": \"john@example.com\",\n    \"valid_until\": \"2026-12-31T00:00:00Z\",\n    \"rate_limit_remaining\": 842\n  }\n}"
+    "{\n  \"status\": \"success\",\n  \"data\": {\n    \"key\": \"klab_your_api_key_here\",\n    \"device\": \"device_id_here\",\n    \"subscription\": \"pro\",\n    \"username\": \"john\",\n    \"email\": \"john@example.com\",\n    \"valid_until\": \"2026-12-31T00:00:00Z\",\n    \"rate_limit_remaining\": 842\n  }\n}"
                             </code></pre>
                         </div>
                     </div>
@@ -124,7 +124,7 @@ pub fn QuickstartPage() -> impl IntoView {
                                 <span class="text-xs text-red-400">"401 Unauthorized"</span>
                             </div>
                             <pre class="bg-gray-900 text-gray-300 text-sm p-4 overflow-x-auto"><code>
-"{\n  \"error\": {\n    \"en\": \"Key not found or has been deleted.\",\n    \"id\": \"Kunci tidak ditemukan atau sudah dihapus.\"\n  },\n  \"message\": \"Key not found or has been deleted.\"\n}"
+    "{\n  \"error\": {\n    \"en\": \"Key not found or has been deleted.\",\n    \"id\": \"Kunci tidak ditemukan atau sudah dihapus.\"\n  },\n  \"message\": \"Key not found or has been deleted.\"\n}"
                             </code></pre>
                         </div>
 
@@ -134,7 +134,7 @@ pub fn QuickstartPage() -> impl IntoView {
                                 <span class="text-xs text-red-400">"401 Unauthorized"</span>
                             </div>
                             <pre class="bg-gray-900 text-gray-300 text-sm p-4 overflow-x-auto"><code>
-"{\n  \"error\": {\n    \"en\": \"This API key has expired.\",\n    \"id\": \"Kunci API ini sudah kedaluwarsa.\"\n  },\n  \"message\": \"This API key has expired.\"\n}"
+    "{\n  \"error\": {\n    \"en\": \"This API key has expired.\",\n    \"id\": \"Kunci API ini sudah kedaluwarsa.\"\n  },\n  \"message\": \"This API key has expired.\"\n}"
                             </code></pre>
                         </div>
 
@@ -144,7 +144,7 @@ pub fn QuickstartPage() -> impl IntoView {
                                 <span class="text-xs text-yellow-400">"429 Too Many Requests"</span>
                             </div>
                             <pre class="bg-gray-900 text-gray-300 text-sm p-4 overflow-x-auto"><code>
-"{\n  \"error\": {\n    \"en\": \"Rate limit exceeded. Please try again later or upgrade your subscription.\",\n    \"id\": \"Batas rate limit terlampaui. Silakan coba lagi nanti atau upgrade langganan Anda.\"\n  },\n  \"message\": \"Rate limit exceeded. Please try again later or upgrade your subscription.\"\n}"
+    "{\n  \"error\": {\n    \"en\": \"Rate limit exceeded. Please try again later or upgrade your subscription.\",\n    \"id\": \"Batas rate limit terlampaui. Silakan coba lagi nanti atau upgrade langganan Anda.\"\n  },\n  \"message\": \"Rate limit exceeded. Please try again later or upgrade your subscription.\"\n}"
                             </code></pre>
                         </div>
                     </div>
@@ -167,7 +167,7 @@ pub fn QuickstartPage() -> impl IntoView {
                                 <span class="text-xs font-medium text-gray-400">"JavaScript / Node.js"</span>
                             </div>
                             <pre class="bg-gray-900 text-gray-300 text-sm p-4 overflow-x-auto"><code>
-"async function validateKey(authKey, authDevice, usage = 1) {\n  const res = await fetch('https://your-domain.com/v1/auth', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      auth_key: authKey,\n      auth_device: authDevice,\n      rate_limit_usage: usage,\n    }),\n  });\n  if (!res.ok) {\n    const err = await res.json();\n    throw new Error(err.message);\n  }\n  const { data } = await res.json();\n  return data; // { key, device, subscription, rate_limit_remaining, ... }\n}"
+    "async function validateKey(authKey, authDevice, usage = 1) {\n  const res = await fetch('https://your-domain.com/v1/auth', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      auth_key: authKey,\n      auth_device: authDevice,\n      rate_limit_usage: usage,\n    }),\n  });\n  if (!res.ok) {\n    const err = await res.json();\n    throw new Error(err.message);\n  }\n  const { data } = await res.json();\n  return data; // { key, device, subscription, rate_limit_remaining, ... }\n}"
                             </code></pre>
                         </div>
 
@@ -176,7 +176,7 @@ pub fn QuickstartPage() -> impl IntoView {
                                 <span class="text-xs font-medium text-gray-400">"Python"</span>
                             </div>
                             <pre class="bg-gray-900 text-gray-300 text-sm p-4 overflow-x-auto"><code>
-"import requests\n\ndef validate_key(auth_key: str, auth_device: str, usage: int = 1) -> dict:\n    response = requests.post(\n        'https://your-domain.com/v1/auth',\n        json={\n            'auth_key': auth_key,\n            'auth_device': auth_device,\n            'rate_limit_usage': usage,\n        },\n    )\n    response.raise_for_status()  # raises on 4xx/5xx\n    return response.json()['data']"
+    "import requests\n\ndef validate_key(auth_key: str, auth_device: str, usage: int = 1) -> dict:\n    response = requests.post(\n        'https://your-domain.com/v1/auth',\n        json={\n            'auth_key': auth_key,\n            'auth_device': auth_device,\n            'rate_limit_usage': usage,\n        },\n    )\n    response.raise_for_status()  # raises on 4xx/5xx\n    return response.json()['data']"
                             </code></pre>
                         </div>
                     </div>

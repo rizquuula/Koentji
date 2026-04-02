@@ -47,7 +47,7 @@ fmt: ## Format code
 clippy: ## Run clippy lints
 	cargo clippy --all-features -- -D warnings
 
-test: ## Run tests
+test: fmt ## Run tests
 	cargo test
 
 clean: ## Clean build artifacts

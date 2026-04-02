@@ -5,10 +5,8 @@ pub async fn login(username: String, password: String) -> Result<bool, ServerFnE
     use actix_session::Session;
     use leptos_actix::extract;
 
-    let admin_username =
-        std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string());
-    let admin_password =
-        std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "admin".to_string());
+    let admin_username = std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string());
+    let admin_password = std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "admin".to_string());
 
     if username == admin_username && password == admin_password {
         let session = extract::<Session>().await?;
@@ -29,7 +27,11 @@ pub async fn logout() -> Result<(), ServerFnError> {
     use leptos_actix::extract;
 
     let session = extract::<Session>().await?;
-    let username = session.get::<String>("username").ok().flatten().unwrap_or_default();
+    let username = session
+        .get::<String>("username")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     session.purge();
     log::info!("Admin logout: username={}", username);
     Ok(())

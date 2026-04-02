@@ -230,13 +230,25 @@ fn RateLimitIntervalForm(
     let is_editing = move || editing.get().is_some();
 
     let name = RwSignal::new(
-        editing.get_untracked().as_ref().map(|i| i.name.clone()).unwrap_or_default(),
+        editing
+            .get_untracked()
+            .as_ref()
+            .map(|i| i.name.clone())
+            .unwrap_or_default(),
     );
     let display_name = RwSignal::new(
-        editing.get_untracked().as_ref().map(|i| i.display_name.clone()).unwrap_or_default(),
+        editing
+            .get_untracked()
+            .as_ref()
+            .map(|i| i.display_name.clone())
+            .unwrap_or_default(),
     );
     let duration_seconds = RwSignal::new(
-        editing.get_untracked().as_ref().map(|i| i.duration_seconds.to_string()).unwrap_or_default(),
+        editing
+            .get_untracked()
+            .as_ref()
+            .map(|i| i.duration_seconds.to_string())
+            .unwrap_or_default(),
     );
     let submitting = RwSignal::new(false);
 

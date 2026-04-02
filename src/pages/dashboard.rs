@@ -16,9 +16,7 @@ pub fn DashboardPage() -> impl IntoView {
         move |(r, s, e)| get_dashboard_stats(r, s, e),
     );
 
-    let stats_signal = Signal::derive(move || {
-        stats_resource.get().and_then(|r| r.ok())
-    });
+    let stats_signal = Signal::derive(move || stats_resource.get().and_then(|r| r.ok()));
 
     view! {
         <Layout active_tab="dashboard">
