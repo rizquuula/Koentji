@@ -197,6 +197,8 @@ async fn auth_endpoint(
 
     let free_trial_key = std::env::var("FREE_TRIAL_KEY")
         .unwrap_or_else(|_| "FREE_TRIAL".to_string());
+    let free_trial_subscription_name = std::env::var("FREE_TRIAL_SUBSCRIPTION_NAME")
+        .unwrap_or_else(|_| "free".to_string());
 
     // 1. Check cache first
     let cached = auth_cache.get(&body.auth_key, &body.auth_device).await;
@@ -247,11 +249,12 @@ async fn auth_endpoint(
                     &body.auth_key,
                     &body.auth_device,
                     &free_trial_key,
+                    &free_trial_subscription_name,
                 )
                 .await;
 
                 match upserted {
-                    Ok(Some(k)) => (k, 86400i64), // free trial defaults to daily
+                    Ok(Some((k, interval_secs))) => (k, interval_secs),
                     _ => {
                         return actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(json!({
                             "error": {
@@ -413,9 +416,9 @@ impl AuthKeyWithInterval {
     }
 }
 
-/// Attempt to upsert a free trial record.
-/// - If auth_key == FREE_TRIAL_KEY: insert new record for this device
-/// - If auth_key exists (any device): update it to bind this device (free trial)
+/// Attempt to upsert a free trial record or bind a device to an existing key.
+/// - If auth_key == FREE_TRIAL_KEY: insert new free trial record for this device
+/// - If auth_key exists (any device) with device_id "-": bind this device to it
 /// - Otherwise: return None (key not recognized)
 #[cfg(feature = "ssr")]
 async fn try_upsert_free_trial(
@@ -423,64 +426,102 @@ async fn try_upsert_free_trial(
     auth_key: &str,
     device_id: &str,
     free_trial_key: &str,
-) -> Result<Option<koentji::models::AuthenticationKey>, sqlx::Error> {
+    free_trial_subscription_name: &str,
+) -> Result<Option<(koentji::models::AuthenticationKey, i64)>, sqlx::Error> {
     use chrono::{Datelike, Utc};
 
-    let now = Utc::now();
-    // Expire at the first day of next month
-    let next_month = {
-        let d = now.date_naive();
-        let (y, m) = if d.month() == 12 {
-            (d.year() + 1, 1u32)
-        } else {
-            (d.year(), d.month() + 1)
-        };
-        chrono::NaiveDate::from_ymd_opt(y, m, 1)
-            .map(|nd| nd.and_hms_opt(0, 0, 0).unwrap())
-            .map(|ndt| chrono::DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
-    };
-
     if auth_key == free_trial_key {
-        // Insert new free trial row for this device
+        // Look up the subscription type for free trial
+        let sub = sqlx::query_as::<_, koentji::models::SubscriptionType>(
+            "SELECT * FROM subscription_types WHERE name = $1 AND is_active = true LIMIT 1",
+        )
+        .bind(free_trial_subscription_name)
+        .fetch_optional(pool)
+        .await?;
+
+        let (sub_name, sub_type_id, rate_limit, interval_id, interval_seconds) = if let Some(s) = sub {
+            // Look up the interval duration
+            let dur: Option<(i64,)> = sqlx::query_as(
+                "SELECT duration_seconds FROM rate_limit_intervals WHERE id = $1",
+            )
+            .bind(s.rate_limit_interval_id)
+            .fetch_optional(pool)
+            .await?;
+            (
+                s.name,
+                Some(s.id),
+                s.rate_limit_amount,
+                Some(s.rate_limit_interval_id),
+                dur.map(|d| d.0).unwrap_or(86400),
+            )
+        } else {
+            log::warn!(
+                "Free trial subscription type '{}' not found or inactive, using hardcoded fallback (6000 daily)",
+                free_trial_subscription_name
+            );
+            ("free_trial".to_string(), None, 6000, None, 86400i64)
+        };
+
+        let now = Utc::now();
+        let next_month = {
+            let d = now.date_naive();
+            let (y, m) = if d.month() == 12 {
+                (d.year() + 1, 1u32)
+            } else {
+                (d.year(), d.month() + 1)
+            };
+            chrono::NaiveDate::from_ymd_opt(y, m, 1)
+                .map(|nd| nd.and_hms_opt(0, 0, 0).unwrap())
+                .map(|ndt| chrono::DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
+        };
+
         let row = sqlx::query_as::<_, koentji::models::AuthenticationKey>(
             r#"INSERT INTO authentication_keys
-                (key, device_id, subscription, created_by, created_at, updated_at, expired_at, rate_limit_daily, rate_limit_remaining)
-               VALUES ($1, $2, 'free_trial', 'system', $3, $3, $4, 6000, 6000)
+                (key, device_id, subscription, subscription_type_id, rate_limit_interval_id,
+                 created_by, created_at, updated_at, expired_at, rate_limit_daily, rate_limit_remaining)
+               VALUES ($1, $2, $3, $4, $5, 'system', $6, $6, $7, $8, $8)
                RETURNING *"#,
         )
         .bind(auth_key)
         .bind(device_id)
+        .bind(&sub_name)
+        .bind(sub_type_id)
+        .bind(interval_id)
         .bind(now)
         .bind(next_month)
+        .bind(rate_limit)
         .fetch_optional(pool)
         .await?;
-        return Ok(row);
+
+        return Ok(row.map(|r| (r, interval_seconds)));
     }
 
-    // Check if the key exists under any device
+    // Check if the key exists with a placeholder device_id ("-")
     let exists: Option<(i32,)> = sqlx::query_as(
-        "SELECT id FROM authentication_keys WHERE key = $1 LIMIT 1",
+        "SELECT id FROM authentication_keys WHERE key = $1 AND device_id = '-' LIMIT 1",
     )
     .bind(auth_key)
     .fetch_optional(pool)
     .await?;
 
     if exists.is_some() {
-        // Bind this device to the existing key (free trial)
-        let row = sqlx::query_as::<_, koentji::models::AuthenticationKey>(
-            r#"UPDATE authentication_keys
-               SET device_id = $1, subscription = 'free_trial', created_by = 'system',
-                   created_at = $2, expired_at = $3
-               WHERE key = $4
-               RETURNING *"#,
+        // Bind this device to the existing key (only update device_id)
+        let row = sqlx::query_as::<_, AuthKeyWithInterval>(
+            r#"UPDATE authentication_keys ak
+               SET device_id = $1, updated_at = NOW()
+               FROM (SELECT COALESCE(rli.duration_seconds, 86400) as interval_seconds
+                     FROM authentication_keys ak2
+                     LEFT JOIN rate_limit_intervals rli ON ak2.rate_limit_interval_id = rli.id
+                     WHERE ak2.key = $2 AND ak2.device_id = '-' LIMIT 1) sub
+               WHERE ak.key = $2 AND ak.device_id = '-'
+               RETURNING ak.*, sub.interval_seconds"#,
         )
         .bind(device_id)
-        .bind(now)
-        .bind(next_month)
         .bind(auth_key)
         .fetch_optional(pool)
         .await?;
-        return Ok(row);
+
+        return Ok(row.map(|r| (r.to_auth_key(), r.interval_seconds)));
     }
 
     Ok(None)
