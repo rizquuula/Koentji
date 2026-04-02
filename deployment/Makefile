@@ -39,6 +39,17 @@ shell: ## Open a shell in the app container
 db-shell: ## Open a psql shell in the db container
         $(DC) exec db psql -U $${POSTGRES_USER:-koentji} $${POSTGRES_DB:-koentjilab}
 
+.PHONY: pull
+pull: ## Pull latest koentji app image
+        docker pull ghcr.io/rizquuula/koentji:latest
+
+.PHONY: dump-db
+dump-db: ## Dump all DB data to koentji-db-<datetime>.sql
+        docker exec koentji-db pg_dump \
+          -U $${POSTGRES_USER:-koentji} \
+          $${POSTGRES_DB:-koentjilab} \
+          > koentji-db-$$(date -u +%Y-%m-%dT%H:%M:%SZ).sql
+
 .PHONY: clean
 clean: ## Stop containers and remove volumes (destructive)
         $(DC) down -v

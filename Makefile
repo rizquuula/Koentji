@@ -1,4 +1,4 @@
-.PHONY: help dev run build fmt clippy test clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs tailwind
+.PHONY: help dev run build fmt clippy test clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs docker-pull tailwind
 
 -include .env
 export
@@ -68,3 +68,6 @@ docker-build: ## Build Docker images
 
 docker-logs: ## Tail logs for all containers (or pass s=service to filter)
 	docker compose logs -f $(s)
+
+docker-pull: ## Pull latest Docker images
+	docker compose pull
