@@ -358,27 +358,26 @@ async fn auth_endpoint(
         }));
     }
 
-    // 5. Update rate limit in DB (write-through)
-    let update_result = sqlx::query(
-        "UPDATE authentication_keys SET rate_limit_remaining = $1, rate_limit_updated_at = $2 WHERE key = $3 AND device_id = $4",
-    )
-    .bind(new_remaining)
-    .bind(now)
-    .bind(&body.auth_key)
-    .bind(&body.auth_device)
-    .execute(pool.get_ref())
-    .await;
-
-    if let Err(e) = update_result {
-        log::error!(
-            "Failed to update rate limit for device={}: {}",
-            key.device_id,
-            e
-        );
-        return actix_web::HttpResponse::InternalServerError().json(json!({
-            "error": { "en": "Internal server error." },
-            "message": "Internal server error."
-        }));
+    // 5. Update rate limit in DB (fire-and-forget — don't block the response)
+    {
+        let pool = pool.clone();
+        let auth_key = body.auth_key.clone();
+        let auth_device = body.auth_device.clone();
+        let device_id = key.device_id.clone();
+        actix_web::rt::spawn(async move {
+            if let Err(e) = sqlx::query(
+                "UPDATE authentication_keys SET rate_limit_remaining = $1, rate_limit_updated_at = $2 WHERE key = $3 AND device_id = $4",
+            )
+            .bind(new_remaining)
+            .bind(now)
+            .bind(&auth_key)
+            .bind(&auth_device)
+            .execute(pool.get_ref())
+            .await
+            {
+                log::error!("Failed to update rate limit for device={}: {}", device_id, e);
+            }
+        });
     }
 
     // Update cache with new rate limit values
