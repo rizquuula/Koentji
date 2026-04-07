@@ -53,11 +53,11 @@ pub fn Layout(
                             </div>
                             <div class="flex space-x-1">
                                 <a href="/dashboard" class=dashboard_class>"Dashboard"</a>
-                                <a href="/keys" class=keys_class>"API Keys"</a>
+                                <a href="/keys" class=keys_class>"Keys"</a>
                                 <a href="/subscriptions" class=subscriptions_class>"Subscriptions"</a>
                                 <a href="/limits-interval" class=rate_limits_class>"Limits Interval"</a>
                                 <a href="/quickstart" class=quickstart_class>"Quickstart"</a>
-                                <a href="/docs" target="_blank" class="px-4 py-2 text-gray-500 hover:text-gray-700 font-medium">"Swagger"</a>
+                                <a href="/docs" target="_blank" class="px-4 py-2 text-gray-500 hover:text-gray-700 font-medium">"API Docs"</a>
                             </div>
                         </div>
                         <div class="flex items-center space-x-4">

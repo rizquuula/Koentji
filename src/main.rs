@@ -317,6 +317,25 @@ async fn auth_endpoint(
     // 3. Check expired
     if key.is_expired() {
         let expired_at = key.expired_at.unwrap().to_rfc3339();
+        let is_free_trial = key
+            .subscription
+            .as_deref()
+            .map(|s| s.eq_ignore_ascii_case(&free_trial_subscription_name))
+            .unwrap_or(false);
+        if is_free_trial {
+            log::warn!(
+                "Auth failed - free trial expired: device={}, expired_at={}",
+                key.device_id,
+                expired_at
+            );
+            return actix_web::HttpResponse::build(StatusCode::UNAUTHORIZED).json(json!({
+                "error": {
+                    "en": "Free trial period has ended. Please upgrade your subscription to continue.",
+                    "id": "Masa percobaan gratis telah berakhir. Silakan tingkatkan langganan Anda untuk melanjutkan."
+                },
+                "message": "Free trial period has ended. Please upgrade your subscription to continue."
+            }));
+        }
         log::warn!(
             "Auth failed - expired key: device={}, expired_at={}",
             key.device_id,
