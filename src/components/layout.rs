@@ -38,6 +38,7 @@ pub fn Layout(
     let subscriptions_class = nav_class("subscriptions");
     let rate_limits_class = nav_class("limits_interval");
     let quickstart_class = nav_class("quickstart");
+    let about_class = nav_class("about");
 
     view! {
         <div class="min-h-screen bg-gray-50">
@@ -45,18 +46,19 @@ pub fn Layout(
                 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div class="flex justify-between h-16">
                         <div class="flex items-center space-x-8">
-                            <div class="flex items-center space-x-2">
+                            <a href="/" class="flex items-center space-x-2">
                                 <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
                                 </svg>
                                 <span class="text-xl font-bold text-gray-900">"Koentji"</span>
-                            </div>
+                            </a>
                             <div class="flex space-x-1">
                                 <a href="/dashboard" class=dashboard_class>"Dashboard"</a>
                                 <a href="/keys" class=keys_class>"Keys"</a>
                                 <a href="/subscriptions" class=subscriptions_class>"Subscriptions"</a>
                                 <a href="/limits-interval" class=rate_limits_class>"Limits Interval"</a>
                                 <a href="/quickstart" class=quickstart_class>"Quickstart"</a>
+                                <a href="/about" class=about_class>"About"</a>
                                 <a href="/docs" target="_blank" class="px-4 py-2 text-gray-500 hover:text-gray-700 font-medium">"API Docs"</a>
                             </div>
                         </div>

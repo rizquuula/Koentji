@@ -1,7 +1,8 @@
 use crate::components::toast::provide_toast_context;
 use crate::pages::{
-    dashboard::DashboardPage, keys::KeysPage, login::LoginPage, quickstart::QuickstartPage,
-    rate_limits::LimitsIntervalPage, subscriptions::SubscriptionsPage,
+    about::AboutPage, dashboard::DashboardPage, keys::KeysPage, landing::LandingPage,
+    login::LoginPage, privacy::PrivacyPage, quickstart::QuickstartPage,
+    rate_limits::LimitsIntervalPage, subscriptions::SubscriptionsPage, terms::TermsPage,
 };
 use leptos::prelude::*;
 use leptos_meta::*;
@@ -29,7 +30,10 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("/subscriptions") view=SubscriptionsPage/>
                 <Route path=path!("/limits-interval") view=LimitsIntervalPage/>
                 <Route path=path!("/quickstart") view=QuickstartPage/>
-                <Route path=path!("/") view=|| view! { <leptos_router::components::Redirect path="/dashboard"/> }/>
+                <Route path=path!("/about") view=AboutPage/>
+                <Route path=path!("/terms") view=TermsPage/>
+                <Route path=path!("/privacy") view=PrivacyPage/>
+                <Route path=path!("/") view=LandingPage/>
             </Routes>
         </Router>
     }

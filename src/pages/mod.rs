@@ -1,6 +1,10 @@
+pub mod about;
 pub mod dashboard;
 pub mod keys;
+pub mod landing;
 pub mod login;
+pub mod privacy;
 pub mod quickstart;
 pub mod rate_limits;
 pub mod subscriptions;
+pub mod terms;
