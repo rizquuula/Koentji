@@ -60,12 +60,14 @@ pub fn Layout(
                                 <span class="text-xl font-bold text-gray-900">"Koentji"</span>
                             </a>
                             <div class="flex space-x-1">
-                                <Show when=is_logged_in>
-                                    <a href="/dashboard" class=dashboard_class>"Dashboard"</a>
-                                    <a href="/keys" class=keys_class>"Keys"</a>
-                                    <a href="/subscriptions" class=subscriptions_class>"Subscriptions"</a>
-                                    <a href="/limits-interval" class=rate_limits_class>"Limits Interval"</a>
-                                </Show>
+                                <Suspense fallback=|| ()>
+                                    <Show when=is_logged_in>
+                                        <a href="/dashboard" class=dashboard_class>"Dashboard"</a>
+                                        <a href="/keys" class=keys_class>"Keys"</a>
+                                        <a href="/subscriptions" class=subscriptions_class>"Subscriptions"</a>
+                                        <a href="/limits-interval" class=rate_limits_class>"Limits Interval"</a>
+                                    </Show>
+                                </Suspense>
                                 <a href="/quickstart" class=quickstart_class>"Quickstart"</a>
                                 <a href="/about" class=about_class>"About"</a>
                                 <a href="/docs" target="_blank" class="px-4 py-2 text-gray-500 hover:text-gray-700 font-medium">"API Docs"</a>
@@ -84,17 +86,19 @@ pub fn Layout(
                                     }
                                 })}
                             </Suspense>
-                            <Show when=is_logged_in>
-                                <button
-                                    class="text-sm text-gray-500 hover:text-red-600 transition-colors"
-                                    on:click=move |_| { let _ = handle_logout.dispatch(()); }
-                                >
-                                    "Logout"
-                                </button>
-                            </Show>
-                            <Show when=move || !is_logged_in()>
-                                <a href="/login" class="text-sm text-blue-600 hover:text-blue-800 font-medium">"Login"</a>
-                            </Show>
+                            <Suspense fallback=|| ()>
+                                <Show when=is_logged_in>
+                                    <button
+                                        class="text-sm text-gray-500 hover:text-red-600 transition-colors"
+                                        on:click=move |_| { let _ = handle_logout.dispatch(()); }
+                                    >
+                                        "Logout"
+                                    </button>
+                                </Show>
+                                <Show when=move || !is_logged_in()>
+                                    <a href="/login" class="text-sm text-blue-600 hover:text-blue-800 font-medium">"Login"</a>
+                                </Show>
+                            </Suspense>
                         </div>
                     </div>
                 </div>
