@@ -1,8 +1,19 @@
-use crate::auth::login;
+use crate::auth::{get_current_user, login};
 use leptos::prelude::*;
 
 #[component]
 pub fn LoginPage() -> impl IntoView {
+    let user_resource = Resource::new(|| (), |_| get_current_user());
+
+    Effect::new(move |_| {
+        if let Some(Ok(Some(_))) = user_resource.get() {
+            leptos::prelude::window()
+                .location()
+                .set_href("/dashboard")
+                .ok();
+        }
+    });
+
     let username = RwSignal::new(String::new());
     let password = RwSignal::new(String::new());
     let error = RwSignal::new(None::<String>);

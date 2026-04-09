@@ -87,17 +87,21 @@ pub fn Layout(
                                 })}
                             </Suspense>
                             <Suspense fallback=|| ()>
-                                <Show when=is_logged_in>
-                                    <button
-                                        class="text-sm text-gray-500 hover:text-red-600 transition-colors"
-                                        on:click=move |_| { let _ = handle_logout.dispatch(()); }
-                                    >
-                                        "Logout"
-                                    </button>
-                                </Show>
-                                <Show when=move || !is_logged_in()>
-                                    <a href="/login" class="text-sm text-blue-600 hover:text-blue-800 font-medium">"Login"</a>
-                                </Show>
+                                {move || user_resource.get().map(|result| {
+                                    match result {
+                                        Ok(Some(_)) => view! {
+                                            <button
+                                                class="text-sm text-gray-500 hover:text-red-600 transition-colors"
+                                                on:click=move |_| { let _ = handle_logout.dispatch(()); }
+                                            >
+                                                "Logout"
+                                            </button>
+                                        }.into_any(),
+                                        _ => view! {
+                                            <a href="/login" class="text-sm text-blue-600 hover:text-blue-800 font-medium">"Login"</a>
+                                        }.into_any(),
+                                    }
+                                })}
                             </Suspense>
                         </div>
                     </div>
