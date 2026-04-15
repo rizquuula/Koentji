@@ -1,4 +1,4 @@
-.PHONY: help dev run build fmt clippy test clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs docker-pull tailwind
+.PHONY: help dev run build fmt clippy test clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs docker-pull tailwind e2e e2e-install
 
 -include .env
 export
@@ -71,3 +71,10 @@ docker-logs: ## Tail logs for all containers (or pass s=service to filter)
 
 docker-pull: ## Pull latest Docker images
 	docker compose pull
+
+## End-to-end tests
+e2e-install: ## Install Playwright browsers and dependencies
+	cd end2end && npm install && npx playwright install --with-deps chromium
+
+e2e: ## Run Playwright end-to-end test suite
+	cd end2end && npx playwright test
