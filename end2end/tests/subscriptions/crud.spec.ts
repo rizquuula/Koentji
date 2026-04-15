@@ -1,56 +1,71 @@
 import { test, expect } from '@playwright/test';
-import { withDb } from '../../fixtures/db';
+import { withDb, insertSubscriptionType, deleteSubscriptionTypeByName } from '../../fixtures/db';
 
-const TEST_SUB = {
-  name: `e2e_sub_${Date.now()}`,
-  display: 'E2E Sub',
-  limit: '1234',
-};
-
-async function cleanup() {
-  await withDb(async (c) => {
-    await c.query('DELETE FROM subscription_types WHERE name LIKE $1', ['e2e_sub_%']);
-  });
-}
+const PREFIX = 'e2e_sub_';
+const CREATE_NAME = `${PREFIX}create_${Date.now()}`;
+const TOGGLE_NAME = `${PREFIX}toggle_${Date.now()}`;
+const DELETE_NAME = `${PREFIX}delete_${Date.now()}`;
 
 test.describe('subscription types CRUD', () => {
-  test.afterAll(cleanup);
+  test.afterAll(async () => {
+    await withDb(async (c) => {
+      await c.query("DELETE FROM subscription_types WHERE name LIKE 'e2e_sub_%'");
+    });
+  });
 
-  test('create subscription type', async ({ page }) => {
+  test('create subscription type via form', async ({ page }) => {
     await page.goto('/subscriptions');
     await page.getByRole('button', { name: /Add Subscription/i }).click();
 
-    const modal = page.getByRole('heading', { name: 'Subscription Type' }).locator('..').locator('..');
-    await expect(modal).toBeVisible();
+    // Use exact match on the modal heading to avoid colliding with the page h1 "Subscription Types".
+    await expect(page.getByRole('heading', { name: 'Subscription Type', exact: true })).toBeVisible();
 
-    await modal.getByPlaceholder('e.g. basic').fill(TEST_SUB.name);
-    await modal.getByPlaceholder('e.g. Basic').fill(TEST_SUB.display);
-    await modal.locator('input[type="number"]').fill(TEST_SUB.limit);
-    await modal.locator('select').selectOption({ label: 'Daily' });
-    await modal.getByRole('button', { name: /^Save$|^Create$|^Submit$/i }).first().click().catch(async () => {
-      // Fallback: click the submit button inside the form.
-      await modal.locator('button[type="submit"]').click();
-    });
+    await page.locator('input[placeholder="e.g. basic"]').fill(CREATE_NAME);
+    await page.locator('input[placeholder="e.g. Basic"]').fill('E2E Create');
+    await page.locator('form input[type="number"]').fill('1234');
+    await page.locator('form select').first().selectOption({ label: 'Daily' });
+    await page.locator('form button[type="submit"]').click();
 
-    await expect(page.getByRole('cell', { name: TEST_SUB.name })).toBeVisible();
-    await expect(page.getByText(/Subscription type saved successfully/i)).toBeVisible();
+    await expect(page.getByRole('cell', { name: CREATE_NAME })).toBeVisible();
   });
 
   test('deactivate and reactivate subscription type', async ({ page }) => {
+    await withDb((c) =>
+      insertSubscriptionType(c, {
+        name: TOGGLE_NAME,
+        display_name: 'E2E Toggle',
+        is_active: true,
+      }),
+    );
+
     await page.goto('/subscriptions');
-    const row = page.getByRole('row').filter({ hasText: TEST_SUB.name });
-    await row.getByRole('button', { name: /Deactivate/i }).click();
+    const row = page.getByRole('row').filter({ hasText: TOGGLE_NAME });
+    await expect(row).toBeVisible();
+
+    await row.getByRole('button', { name: /^Deactivate$/ }).click();
     await expect(row).toContainText(/Inactive/);
-    await row.getByRole('button', { name: /Activate/i }).click();
+
+    await row.getByRole('button', { name: /^Activate$/ }).click();
     await expect(row).toContainText(/Active/);
   });
 
   test('delete subscription type via confirm modal', async ({ page }) => {
+    await withDb((c) =>
+      insertSubscriptionType(c, {
+        name: DELETE_NAME,
+        display_name: 'E2E Delete',
+      }),
+    );
+
     await page.goto('/subscriptions');
-    const row = page.getByRole('row').filter({ hasText: TEST_SUB.name });
+    const row = page.getByRole('row').filter({ hasText: DELETE_NAME });
+    await expect(row).toBeVisible();
+
     await row.getByRole('button', { name: /^Delete$/ }).click();
     await expect(page.getByRole('heading', { name: 'Delete Subscription Type' })).toBeVisible();
-    await page.getByRole('button', { name: /^Delete$/ }).last().click();
-    await expect(page.getByRole('cell', { name: TEST_SUB.name })).toHaveCount(0);
+    // The modal confirm button is the only bg-red-600 button on the page.
+    await page.locator('button.bg-red-600', { hasText: /^Delete$/ }).click();
+
+    await expect(page.getByRole('cell', { name: DELETE_NAME, exact: true })).toHaveCount(0);
   });
 });

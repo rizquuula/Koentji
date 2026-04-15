@@ -30,6 +30,7 @@ export const REPO_ROOT = path.resolve(__dirname, '..', '..');
 export const SERVER_ENV: Record<string, string> = {
   DATABASE_URL,
   LEPTOS_SITE_ADDR: `${E2E_HOST}:${E2E_PORT}`,
+  LEPTOS_RELOAD_PORT: String(E2E_PORT + 1),
   ADMIN_USERNAME,
   ADMIN_PASSWORD,
   FREE_TRIAL_KEY,

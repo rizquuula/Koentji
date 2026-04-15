@@ -117,6 +117,42 @@ export async function countKeysByDevice(c: Client, device_id: string): Promise<n
   return Number(rows[0].count);
 }
 
+export async function insertSubscriptionType(
+  c: Client,
+  input: {
+    name: string;
+    display_name: string;
+    rate_limit_amount?: number;
+    rate_limit_interval_name?: string;
+    is_active?: boolean;
+  },
+): Promise<number> {
+  const { rows } = await c.query<{ id: number }>(
+    `
+    INSERT INTO subscription_types (name, display_name, rate_limit_amount, rate_limit_interval_id, is_active)
+    VALUES ($1, $2, $3, (SELECT id FROM rate_limit_intervals WHERE name = $4), $5)
+    ON CONFLICT (name) DO UPDATE SET
+      display_name = EXCLUDED.display_name,
+      rate_limit_amount = EXCLUDED.rate_limit_amount,
+      rate_limit_interval_id = EXCLUDED.rate_limit_interval_id,
+      is_active = EXCLUDED.is_active
+    RETURNING id
+    `,
+    [
+      input.name,
+      input.display_name,
+      input.rate_limit_amount ?? 1000,
+      input.rate_limit_interval_name ?? 'daily',
+      input.is_active ?? true,
+    ],
+  );
+  return rows[0].id;
+}
+
+export async function deleteSubscriptionTypeByName(c: Client, name: string): Promise<void> {
+  await c.query('DELETE FROM subscription_types WHERE name = $1', [name]);
+}
+
 export async function countKeysByKey(c: Client, key: string): Promise<number> {
   const { rows } = await c.query<{ count: string }>(
     'SELECT COUNT(*)::text AS count FROM authentication_keys WHERE key = $1',
