@@ -50,6 +50,25 @@ pub enum ConsumeOutcome {
     RateLimitExceeded,
 }
 
+/// Configuration for the free-trial claim. The marker is the public
+/// magic string clients send as the auth key (default `FREE_TRIAL`),
+/// and `subscription_name` is the subscription-type row we look up to
+/// copy quota + interval from (default `free`).
+#[derive(Debug, Clone)]
+pub struct FreeTrialConfig {
+    pub marker: String,
+    pub subscription_name: String,
+}
+
+impl FreeTrialConfig {
+    pub fn new(marker: impl Into<String>, subscription_name: impl Into<String>) -> Self {
+        Self {
+            marker: marker.into(),
+            subscription_name: subscription_name.into(),
+        }
+    }
+}
+
 /// Repository errors the domain cares about. We do not leak SQLx
 /// directly; the Postgres adapter collapses its errors into this
 /// small enum so the application layer can pattern-match without
@@ -87,4 +106,24 @@ pub trait IssuedKeyRepository: Send + Sync {
         usage: RateLimitUsage,
         now: DateTime<Utc>,
     ) -> Result<ConsumeOutcome, RepositoryError>;
+
+    /// Two-way door the legacy handler exposed at the miss-in-DB
+    /// boundary:
+    ///
+    /// - if `key` equals `config.marker`, issue a fresh free-trial
+    ///   row for `device` (subscription + quota copied from
+    ///   `config.subscription_name`, expiring on the 1st of next
+    ///   month in UTC);
+    /// - otherwise if a row exists with the same key and the
+    ///   unclaimed-device sentinel (`"-"`), rebind its `device_id`
+    ///   to the requested one.
+    ///
+    /// Returns `Ok(None)` when neither branch fires — the use case
+    /// treats that as `DenialReason::UnknownKey`.
+    async fn claim_free_trial(
+        &self,
+        key: &AuthKey,
+        device: &DeviceId,
+        config: &FreeTrialConfig,
+    ) -> Result<Option<IssuedKey>, RepositoryError>;
 }

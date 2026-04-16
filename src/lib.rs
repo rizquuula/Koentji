@@ -1,5 +1,7 @@
 #![recursion_limit = "256"]
 pub mod app;
+#[cfg(feature = "ssr")]
+pub mod application;
 pub mod auth;
 #[cfg(feature = "ssr")]
 pub mod cache;

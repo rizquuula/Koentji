@@ -22,6 +22,6 @@ pub use device_id::DeviceId;
 pub use issued_key::{IssuedKey, IssuedKeyId, RateLimitLedger, FREE_TRIAL_MARKER_DEFAULT};
 #[cfg(feature = "ssr")]
 pub use issued_key_repository::IssuedKeyRepository;
-pub use issued_key_repository::{ConsumeOutcome, RepositoryError};
+pub use issued_key_repository::{ConsumeOutcome, FreeTrialConfig, RepositoryError};
 pub use rate_limit::{RateLimitAmount, RateLimitUsage, RateLimitWindow};
 pub use subscription_name::SubscriptionName;

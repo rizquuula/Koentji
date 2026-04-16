@@ -67,6 +67,10 @@ impl RateLimitLedger {
 
 /// The full aggregate. `authorize` is pure; the lifecycle verbs return
 /// `&mut self` updates without touching infrastructure.
+///
+/// `username` and `email` ride along because the success envelope on
+/// `/v1/auth` echoes them back to clients. They are not part of the
+/// authorization decision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssuedKey {
     pub id: IssuedKeyId,
@@ -77,6 +81,8 @@ pub struct IssuedKey {
     pub expired_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
     pub is_free_trial: bool,
+    pub username: Option<String>,
+    pub email: Option<String>,
 }
 
 impl IssuedKey {
@@ -191,6 +197,8 @@ mod tests {
             expired_at: None,
             revoked_at: None,
             is_free_trial: false,
+            username: None,
+            email: None,
         }
     }
 

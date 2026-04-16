@@ -3,7 +3,7 @@
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
 - Current phase: 1
-- Next commit: 1.6
+- Next commit: 1.7
 
 ## Checklist
 
@@ -20,7 +20,7 @@
 - [x] 1.3  tec: define AuthDenialReason enum with en/id mapping at HTTP edge
 - [x] 1.4  tec: introduce IssuedKeyRepository port + Postgres adapter
 - [x] 1.5  tec: hide Moka auth cache behind AuthCachePort
-- [ ] 1.6  feat: route /v1/auth through AuthenticateApiKey use case
+- [x] 1.6  feat: route /v1/auth through AuthenticateApiKey use case
 - [ ] 1.7  test: cover IssuedKey.authorize across all denial reasons
 - [ ] 1.8  test: integration tests for Postgres IssuedKeyRepository
 
@@ -84,6 +84,7 @@
 - 1.3  2026-04-17 — new `src/interface/http/i18n.rs` with `DenialEnvelope::from_reason` + `status_code(reason)`. Strings copied byte-for-byte from the inline `json!` blocks in `src/main.rs` so e2e text assertions keep passing. 5 unit tests pin each denial shape + its legacy status code (Unknown/Revoked/Expired/FreeTrial → 401, RateLimit → 429). Not wired yet — 1.6 will mount the new envelope via the `AuthenticateApiKey` use case.
 - 1.4  2026-04-17 — new `src/domain/authentication/issued_key_repository.rs` defines the port (`find` + `consume_quota` via `async_trait`, `ConsumeOutcome`, `RepositoryError`). New `src/infrastructure/postgres/issued_key_repository.rs` implements it — `find` hydrates an `IssuedKey` via a private `IssuedKeyRow` so `sqlx::FromRow` never leaks onto domain types; `consume_quota` reuses the atomic `UPDATE … RETURNING` from 0.3 verbatim. `async-trait` added to deps under the `ssr` feature. Not wired into `/v1/auth` yet — 1.6 hooks it up.
 - 1.5  2026-04-17 — new `src/domain/authentication/auth_cache_port.rs` (`AuthCachePort` with `get`/`put`/`invalidate` over `(AuthKey, DeviceId)`). New `src/infrastructure/cache/moka_auth_cache.rs` adapts Moka to the port and stores the full `IssuedKey` aggregate rather than the legacy DB row. Legacy `src/cache.rs` stays until 1.6 swaps the endpoint.
+- 1.6  2026-04-17 — `/v1/auth` now flows through `koentji::application::AuthenticateApiKey` (new) → `koentji::interface::http::auth_endpoint` (new). `src/main.rs` shrinks from 634 lines to ~188 (wiring only). The handler is non-generic and takes `Arc<AuthenticateApiKey>`; the use case holds `Arc<dyn IssuedKeyRepository>` + `Arc<dyn AuthCachePort>` so the actix `#[post]` macro doesn't fight type parameters. `IssuedKey` gains `username`/`email` (envelope echoes them). `claim_free_trial` ported onto the repository adapter preserving the two-branch INSERT/rebind upsert + 1st-of-next-month UTC calendar math. Envelope byte-identical: `DenialEnvelope::from_reason` + `status_code` renders the same `{ error: { en, id }, message }` as before. Legacy `src/cache.rs` and `src/server/key_service.rs` unchanged (Phase 2 migrates them). 39 unit + 3 harness + 6 rate_limit + 6 stats tests all green.
 
 ## Blockers
 

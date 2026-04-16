@@ -4,4 +4,6 @@
 //! [`crate::domain::authentication::DenialReason`]. 1.6 will route the
 //! endpoint through [`crate::application`] and emit these envelopes.
 
+#[cfg(feature = "ssr")]
+pub mod auth_endpoint;
 pub mod i18n;
