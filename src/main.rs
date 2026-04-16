@@ -350,54 +350,46 @@ async fn auth_endpoint(
         }));
     }
 
-    // 4. Compute new rate limit (reset based on interval)
+    // 4. Atomically decrement the rate-limit counter (or reset it if the
+    //    window elapsed). A single SQL UPDATE decides both branches under
+    //    a row lock — no read-modify-write race, no fire-and-forget spawn.
     let now = Utc::now();
-    let should_reset = match key.rate_limit_updated_at {
-        None => true,
-        Some(updated_at) => (now - updated_at).num_seconds() >= interval_seconds,
-    };
-    let new_remaining = if should_reset {
-        key.rate_limit_daily - body.rate_limit_usage
-    } else {
-        key.rate_limit_remaining - body.rate_limit_usage
-    };
-
-    if new_remaining <= 0 {
-        log::warn!(
-            "Auth failed - rate limit exceeded: device={}, subscription={:?}",
-            key.device_id,
-            key.subscription
-        );
-        return actix_web::HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).json(json!({
-            "error": {
-                "en": "Rate limit exceeded. Please try again later or upgrade your subscription.",
-                "id": "Batas rate limit terlampaui. Silakan coba lagi nanti atau upgrade langganan Anda."
-            },
-            "message": "Rate limit exceeded. Please try again later or upgrade your subscription."
-        }));
-    }
-
-    // 5. Update rate limit in DB (fire-and-forget — don't block the response)
+    let consume = match koentji::rate_limit::consume_rate_limit(
+        pool.get_ref(),
+        &body.auth_key,
+        &body.auth_device,
+        body.rate_limit_usage,
+        now,
+    )
+    .await
     {
-        let pool = pool.clone();
-        let auth_key = body.auth_key.clone();
-        let auth_device = body.auth_device.clone();
-        let device_id = key.device_id.clone();
-        actix_web::rt::spawn(async move {
-            if let Err(e) = sqlx::query(
-                "UPDATE authentication_keys SET rate_limit_remaining = $1, rate_limit_updated_at = $2 WHERE key = $3 AND device_id = $4",
-            )
-            .bind(new_remaining)
-            .bind(now)
-            .bind(&auth_key)
-            .bind(&auth_device)
-            .execute(pool.get_ref())
-            .await
-            {
-                log::error!("Failed to update rate limit for device={}: {}", device_id, e);
-            }
-        });
-    }
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("Rate-limit consume failed for device={}: {}", key.device_id, e);
+            return actix_web::HttpResponse::InternalServerError().json(json!({
+                "error": { "en": "Internal server error." },
+                "message": "Internal server error."
+            }));
+        }
+    };
+
+    let new_remaining = match consume {
+        koentji::rate_limit::ConsumeResult::Allowed { remaining, .. } => remaining,
+        koentji::rate_limit::ConsumeResult::RateLimitExceeded => {
+            log::warn!(
+                "Auth failed - rate limit exceeded: device={}, subscription={:?}",
+                key.device_id,
+                key.subscription
+            );
+            return actix_web::HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).json(json!({
+                "error": {
+                    "en": "Rate limit exceeded. Please try again later or upgrade your subscription.",
+                    "id": "Batas rate limit terlampaui. Silakan coba lagi nanti atau upgrade langganan Anda."
+                },
+                "message": "Rate limit exceeded. Please try again later or upgrade your subscription."
+            }));
+        }
+    };
 
     // Update cache with new rate limit values
     auth_cache

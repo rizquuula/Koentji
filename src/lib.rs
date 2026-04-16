@@ -9,6 +9,8 @@ pub mod db;
 pub mod error;
 pub mod models;
 pub mod pages;
+#[cfg(feature = "ssr")]
+pub mod rate_limit;
 pub mod server;
 
 #[cfg(feature = "hydrate")]

@@ -1,7 +1,8 @@
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{ConnectOptions, Executor, PgPool};
 use std::str::FromStr;
-use tokio::sync::OnceCell;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::Mutex;
 
 /// Maintenance DB URL — used to `CREATE DATABASE` if the shared test DB is
 /// missing. Defaults to the dev-compose cluster.
@@ -11,38 +12,58 @@ const DEFAULT_MAINTENANCE_URL: &str = "postgres://koentji:koentji@127.0.0.1:5432
 /// Shared test DB. Created once per process if missing, then reused.
 const TEST_DB_NAME: &str = "koentji_rs_test";
 
-static SHARED_POOL: OnceCell<PgPool> = OnceCell::const_new();
+/// Each `#[tokio::test]` spins its own runtime, and a `PgPool` is tied to
+/// the runtime it was created in. So we cannot share one pool across tests.
+/// Instead we share the *setup* — DB creation + migrations happen exactly
+/// once per process — and every test gets a short-lived pool of its own.
+static SETUP_DONE: AtomicBool = AtomicBool::new(false);
+static SETUP_LOCK: Mutex<()> = Mutex::const_new(());
 
 /// Return a pool to the shared test DB. On first call per process, this
-/// creates the DB if missing and runs migrations. Subsequent calls are cheap.
+/// creates the DB if missing and runs migrations. Subsequent calls reuse
+/// the prepared DB but hand back a fresh, runtime-local pool.
 ///
 /// Tests share the DB — to avoid cross-test pollution, call [`reset`] at
 /// the top of each test.
 pub async fn test_pool() -> PgPool {
-    SHARED_POOL
-        .get_or_init(|| async { init_pool().await })
-        .await
-        .clone()
+    ensure_setup().await;
+    connect().await
 }
 
-async fn init_pool() -> PgPool {
+async fn ensure_setup() {
+    if SETUP_DONE.load(Ordering::Acquire) {
+        return;
+    }
+    let _guard = SETUP_LOCK.lock().await;
+    if SETUP_DONE.load(Ordering::Acquire) {
+        return;
+    }
+
     let maintenance_url = std::env::var(MAINTENANCE_URL_ENV)
         .unwrap_or_else(|_| DEFAULT_MAINTENANCE_URL.to_string());
 
     ensure_database_exists(&maintenance_url, TEST_DB_NAME).await;
 
-    let test_opts = PgConnectOptions::from_str(&maintenance_url)
+    let pool = connect().await;
+    koentji::db::run_migrations(&pool).await;
+    pool.close().await;
+
+    SETUP_DONE.store(true, Ordering::Release);
+}
+
+async fn connect() -> PgPool {
+    let maintenance_url = std::env::var(MAINTENANCE_URL_ENV)
+        .unwrap_or_else(|_| DEFAULT_MAINTENANCE_URL.to_string());
+
+    let opts = PgConnectOptions::from_str(&maintenance_url)
         .expect("valid maintenance URL")
         .database(TEST_DB_NAME);
 
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect_with(test_opts)
+    PgPoolOptions::new()
+        .max_connections(10)
+        .connect_with(opts)
         .await
-        .expect("connect to shared test DB");
-
-    koentji::db::run_migrations(&pool).await;
-    pool
+        .expect("connect to shared test DB")
 }
 
 async fn ensure_database_exists(maintenance_url: &str, db_name: &str) {
