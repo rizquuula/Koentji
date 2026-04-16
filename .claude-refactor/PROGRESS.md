@@ -3,7 +3,7 @@
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
 - Current phase: 1
-- Next commit: 1.7
+- Next commit: 1.8
 
 ## Checklist
 
@@ -21,7 +21,7 @@
 - [x] 1.4  tec: introduce IssuedKeyRepository port + Postgres adapter
 - [x] 1.5  tec: hide Moka auth cache behind AuthCachePort
 - [x] 1.6  feat: route /v1/auth through AuthenticateApiKey use case
-- [ ] 1.7  test: cover IssuedKey.authorize across all denial reasons
+- [x] 1.7  test: cover IssuedKey.authorize across all denial reasons
 - [ ] 1.8  test: integration tests for Postgres IssuedKeyRepository
 
 ### Phase 2 — admin verbs
@@ -85,6 +85,7 @@
 - 1.4  2026-04-17 — new `src/domain/authentication/issued_key_repository.rs` defines the port (`find` + `consume_quota` via `async_trait`, `ConsumeOutcome`, `RepositoryError`). New `src/infrastructure/postgres/issued_key_repository.rs` implements it — `find` hydrates an `IssuedKey` via a private `IssuedKeyRow` so `sqlx::FromRow` never leaks onto domain types; `consume_quota` reuses the atomic `UPDATE … RETURNING` from 0.3 verbatim. `async-trait` added to deps under the `ssr` feature. Not wired into `/v1/auth` yet — 1.6 hooks it up.
 - 1.5  2026-04-17 — new `src/domain/authentication/auth_cache_port.rs` (`AuthCachePort` with `get`/`put`/`invalidate` over `(AuthKey, DeviceId)`). New `src/infrastructure/cache/moka_auth_cache.rs` adapts Moka to the port and stores the full `IssuedKey` aggregate rather than the legacy DB row. Legacy `src/cache.rs` stays until 1.6 swaps the endpoint.
 - 1.6  2026-04-17 — `/v1/auth` now flows through `koentji::application::AuthenticateApiKey` (new) → `koentji::interface::http::auth_endpoint` (new). `src/main.rs` shrinks from 634 lines to ~188 (wiring only). The handler is non-generic and takes `Arc<AuthenticateApiKey>`; the use case holds `Arc<dyn IssuedKeyRepository>` + `Arc<dyn AuthCachePort>` so the actix `#[post]` macro doesn't fight type parameters. `IssuedKey` gains `username`/`email` (envelope echoes them). `claim_free_trial` ported onto the repository adapter preserving the two-branch INSERT/rebind upsert + 1st-of-next-month UTC calendar math. Envelope byte-identical: `DenialEnvelope::from_reason` + `status_code` renders the same `{ error: { en, id }, message }` as before. Legacy `src/cache.rs` and `src/server/key_service.rs` unchanged (Phase 2 migrates them). 39 unit + 3 harness + 6 rate_limit + 6 stats tests all green.
+- 1.7  2026-04-17 — +24 `IssuedKey.authorize` tests covering: priority-of-denial (revoked beats expired beats rate-limit, free-trial-ended vs rate-limit), clock boundaries (==expiry denies, nanosecond before allows; window reset fires at `==` boundary, not one ns early), ledger arithmetic edge cases (remaining==usage+1 allowed, usage==daily denied, `usage==0` is allowed without decrement), non-default window (60s window resets after 61s), purity (authorize does not mutate), `updated_at` stamping, denial timestamp round-trip (revoked/expired/free-trial), and lifecycle verb interactions (reassign/reset don't unrevoke; extend_until revives an expired key; None expiry is endless). 36 authorize-focused tests in total (>30 plan target). 78 tests across 6 suites all green.
 
 ## Blockers
 
