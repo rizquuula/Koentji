@@ -8,4 +8,5 @@
 
 #![cfg(feature = "ssr")]
 
+pub mod cache;
 pub mod postgres;

@@ -3,7 +3,7 @@
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
 - Current phase: 1
-- Next commit: 1.5
+- Next commit: 1.6
 
 ## Checklist
 
@@ -19,7 +19,7 @@
 - [x] 1.2  tec: extract IssuedKey aggregate with lifecycle verbs
 - [x] 1.3  tec: define AuthDenialReason enum with en/id mapping at HTTP edge
 - [x] 1.4  tec: introduce IssuedKeyRepository port + Postgres adapter
-- [ ] 1.5  tec: hide Moka auth cache behind AuthCachePort
+- [x] 1.5  tec: hide Moka auth cache behind AuthCachePort
 - [ ] 1.6  feat: route /v1/auth through AuthenticateApiKey use case
 - [ ] 1.7  test: cover IssuedKey.authorize across all denial reasons
 - [ ] 1.8  test: integration tests for Postgres IssuedKeyRepository
@@ -83,6 +83,7 @@
 - 1.2  2026-04-17 — `src/domain/authentication/auth_decision.rs` introduces `AuthDecision` + `DenialReason`; `src/domain/authentication/issued_key.rs` hosts the `IssuedKey` aggregate with `authorize(usage, now) -> AuthDecision` (pure) plus the lifecycle verbs `revoke`, `reassign_to`, `reset_rate_limit`, `extend_until`. Authorize preserves the legacy off-by-one (`daily > usage`, `remaining > usage`) and the free-trial-vs-admin expiry split. 12 aggregate tests cover active/revoked/idempotent-revoke/expired-admin/expired-trial/off-by-one/usage>=daily/window-reset/null-updated/reassign-preserves-ledger/reset-restores-daily/extend-set-clear.
 - 1.3  2026-04-17 — new `src/interface/http/i18n.rs` with `DenialEnvelope::from_reason` + `status_code(reason)`. Strings copied byte-for-byte from the inline `json!` blocks in `src/main.rs` so e2e text assertions keep passing. 5 unit tests pin each denial shape + its legacy status code (Unknown/Revoked/Expired/FreeTrial → 401, RateLimit → 429). Not wired yet — 1.6 will mount the new envelope via the `AuthenticateApiKey` use case.
 - 1.4  2026-04-17 — new `src/domain/authentication/issued_key_repository.rs` defines the port (`find` + `consume_quota` via `async_trait`, `ConsumeOutcome`, `RepositoryError`). New `src/infrastructure/postgres/issued_key_repository.rs` implements it — `find` hydrates an `IssuedKey` via a private `IssuedKeyRow` so `sqlx::FromRow` never leaks onto domain types; `consume_quota` reuses the atomic `UPDATE … RETURNING` from 0.3 verbatim. `async-trait` added to deps under the `ssr` feature. Not wired into `/v1/auth` yet — 1.6 hooks it up.
+- 1.5  2026-04-17 — new `src/domain/authentication/auth_cache_port.rs` (`AuthCachePort` with `get`/`put`/`invalidate` over `(AuthKey, DeviceId)`). New `src/infrastructure/cache/moka_auth_cache.rs` adapts Moka to the port and stores the full `IssuedKey` aggregate rather than the legacy DB row. Legacy `src/cache.rs` stays until 1.6 swaps the endpoint.
 
 ## Blockers
 
