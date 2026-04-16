@@ -3,13 +3,13 @@
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
 - Current phase: 0
-- Next commit: 0.2
+- Next commit: 0.3
 
 ## Checklist
 
 ### Phase 0 — safety net
 - [x] 0.1  test: add integration harness and domain-test helpers
-- [ ] 0.2  fix: bind custom date-range parameters in dashboard stats query
+- [x] 0.2  fix: bind custom date-range parameters in dashboard stats query
 - [ ] 0.3  fix: decrement rate limit atomically on /v1/auth
 - [ ] 0.4  chore: drop stale agAuth/ references from docs
 - [ ] 0.5  tec: make check aggregates fmt + clippy + test; CI runs it
@@ -74,6 +74,7 @@
 ## Log
 
 - 0.1  2026-04-17 — `tests/common/{mod,clock,db,key_builder}.rs` + `tests/harness_smoke.rs`; shared test DB, KeyBuilder, TestClock. Pre-existing clippy errors in `src/` are unrelated and will be addressed later.
+- 0.2  2026-04-17 — `src/server/stats_service.rs` rewritten to bind `Option<DateTime<Utc>>` into every query. `custom` range now parses strictly as YYYY-MM-DD — malformed input degrades to (None, None). 6 regression tests in `tests/stats_date_range.rs`.
 
 ## Blockers
 
