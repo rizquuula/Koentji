@@ -4,12 +4,13 @@
 
 **Koentji** is an API key management dashboard and authentication service. It allows an admin to issue, manage, and revoke API keys with subscription tiers and rate limits. External applications authenticate their users by calling the `/v1/auth` endpoint.
 
-The project has two components:
+The project is a single Rust crate that serves both the dashboard (Leptos SSR + WASM) and the public `/v1/auth` API from one Actix-Web process.
 
-| Component | Tech | Purpose |
-|-----------|------|---------|
-| `./` (main) | Rust · Leptos · Actix-Web · PostgreSQL | Full-stack web app (SSR + WASM hydration) + public auth API |
-| `./agAuth/` | Python · FastAPI (inferred) | Standalone Python auth microservice (legacy / alternative) |
+| Layer | Tech | Purpose |
+|-------|------|---------|
+| App | Rust · Leptos · Actix-Web · SQLx | Dashboard SSR/hydration + `POST /v1/auth` |
+| DB | PostgreSQL · embedded migrations | Keys, subscriptions, rate-limit intervals |
+| Tests | `tests/` (Rust) + `end2end/` (Playwright) | Domain-level + end-to-end coverage |
 
 ---
 

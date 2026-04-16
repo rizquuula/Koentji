@@ -81,7 +81,8 @@ src/
 ├── pages/           Page-level components
 └── server/          Leptos server functions
 migrations/          SQL migration files
-agAuth/              Python auth microservice (standalone alternative)
+tests/               Rust integration tests (harness + domain coverage)
+end2end/             Playwright end-to-end suite
 ```
 
 ## Makefile Targets
