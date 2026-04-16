@@ -3,7 +3,7 @@
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
 - Current phase: 1
-- Next commit: 1.1
+- Next commit: 1.2
 
 ## Checklist
 
@@ -15,7 +15,7 @@
 - [x] 0.5  tec: make check aggregates fmt + clippy + test; CI runs it
 
 ### Phase 1 — domain extraction
-- [ ] 1.1  tec: introduce domain module skeleton and value objects
+- [x] 1.1  tec: introduce domain module skeleton and value objects
 - [ ] 1.2  tec: extract IssuedKey aggregate with lifecycle verbs
 - [ ] 1.3  tec: define AuthDenialReason enum with en/id mapping at HTTP edge
 - [ ] 1.4  tec: introduce IssuedKeyRepository port + Postgres adapter
@@ -79,6 +79,7 @@
 - 0.4  2026-04-17 — `README.md` + `CLAUDE.md` no longer claim a sibling `agAuth/` crate; replaced with an accurate single-crate layer table that mentions the `tests/` + `end2end/` suites.
 - 0.5  2026-04-17 — `make test` no longer calls `cargo fmt` (which rewrites in CI); new `make check = fmt-check + clippy (-D warnings, --tests) + test`. Also cleared the ~10 pre-existing `clone_on_copy` / `if let`-rewriteable clippy warnings in `src/pages` / `src/components` / `src/main.rs` so the gate is actually usable. `.github/workflows/test.yml` now runs `make check` against a Postgres service container.
 - P0-e2e 2026-04-17 — `make e2e` (api project) run at Phase 0/1 boundary. Found the legacy off-by-one: old handler returned 429 as soon as post-decrement remaining hit `<= 0`, so only `daily - 1` consumes per window are actually usable. Preserved the semantic in `rate_limit.rs` (`remaining > usage`, `daily > usage`) and realigned the unit tests. All 10 api e2e tests green on chromium.
+- 1.1  2026-04-17 — new `src/domain/` module with the `authentication` bounded context and `DomainError`. Value objects: `AuthKey`, `DeviceId` (including the `"-"` unclaimed sentinel), `RateLimitAmount`, `RateLimitUsage`, `RateLimitWindow`, `SubscriptionName`. Every one has `parse/new` validation and unit tests covering empty / over-long / negative / zero branches — 22 tests. Nothing is wired into the HTTP path yet; this is the vocabulary that 1.2–1.6 will lean on.
 
 ## Blockers
 

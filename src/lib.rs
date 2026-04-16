@@ -6,6 +6,7 @@ pub mod cache;
 pub mod components;
 #[cfg(feature = "ssr")]
 pub mod db;
+pub mod domain;
 pub mod error;
 pub mod models;
 pub mod pages;
