@@ -13,6 +13,12 @@
 //! `rate_limit_intervals.duration_seconds`, so racing resets produce a
 //! correct total instead of both writing the full-daily minus one.
 //!
+//! Legacy semantic preserved for envelope-compat: the old handler
+//! returned 429 whenever the post-decrement remaining was `<= 0`, so the
+//! last slot was never actually usable. We keep that off-by-one here
+//! (`remaining > usage`, `daily > usage`) and leave the cleanup for
+//! Phase 1's `AuthDenialReason` refactor.
+//!
 //! Pre-checks for revoked / expired keys still live in the caller — only
 //! the rate-limit hot path is in SQL here. Phase 1 will move all of this
 //! behind a domain `Authenticator`; for now the function is intentionally
@@ -79,9 +85,9 @@ pub async fn consume_rate_limit(
                         (SELECT duration_seconds FROM rate_limit_intervals
                          WHERE id = ak.rate_limit_interval_id),
                         86400)
-              OR ak.rate_limit_remaining >= $2::int
+              OR ak.rate_limit_remaining > $2::int
           )
-          AND ak.rate_limit_daily >= $2::int
+          AND ak.rate_limit_daily > $2::int
         RETURNING ak.rate_limit_remaining, ak.rate_limit_updated_at
         "#,
     )

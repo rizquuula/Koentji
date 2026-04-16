@@ -78,6 +78,7 @@
 - 0.3  2026-04-17 — new `src/rate_limit.rs` with `consume_rate_limit`: a single `UPDATE … RETURNING` decides reset-vs-decrement in-SQL and locks the row, closing the read-modify-write leak. `/v1/auth` no longer spawns a fire-and-forget writer. 6 regression tests in `tests/rate_limit_atomic.rs` including a 10-concurrent-spawn race probe. `tests/common/db.rs` hands each `#[tokio::test]` a runtime-local pool (PgPool isn't runtime-portable) while keeping DB setup + migrations one-shot per process.
 - 0.4  2026-04-17 — `README.md` + `CLAUDE.md` no longer claim a sibling `agAuth/` crate; replaced with an accurate single-crate layer table that mentions the `tests/` + `end2end/` suites.
 - 0.5  2026-04-17 — `make test` no longer calls `cargo fmt` (which rewrites in CI); new `make check = fmt-check + clippy (-D warnings, --tests) + test`. Also cleared the ~10 pre-existing `clone_on_copy` / `if let`-rewriteable clippy warnings in `src/pages` / `src/components` / `src/main.rs` so the gate is actually usable. `.github/workflows/test.yml` now runs `make check` against a Postgres service container.
+- P0-e2e 2026-04-17 — `make e2e` (api project) run at Phase 0/1 boundary. Found the legacy off-by-one: old handler returned 429 as soon as post-decrement remaining hit `<= 0`, so only `daily - 1` consumes per window are actually usable. Preserved the semantic in `rate_limit.rs` (`remaining > usage`, `daily > usage`) and realigned the unit tests. All 10 api e2e tests green on chromium.
 
 ## Blockers
 

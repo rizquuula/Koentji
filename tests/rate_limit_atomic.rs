@@ -4,6 +4,12 @@
 //! only enough quota exists for one. The previous implementation did a
 //! read-modify-write in two round trips and leaked quota under load; this
 //! suite pins the new atomic contract in place.
+//!
+//! Note the legacy off-by-one: the request that would drop remaining to
+//! exactly zero is itself rate-limited (SQL predicate uses `>`, not
+//! `>=`). So for a key with `daily=N`, only `N-1` consumes of usage 1 are
+//! allowed per window. Phase 1's AuthDenialReason refactor will revisit
+//! this semantic.
 
 #![cfg(feature = "ssr")]
 
@@ -45,16 +51,17 @@ async fn consume_returns_rate_limited_when_window_open_and_empty() {
         .insert(&pool)
         .await;
 
-    // Prime the window: first consume sets rate_limit_updated_at to now
-    // inside the same daily interval.
-    for expected_remaining in [2, 1, 0] {
+    // Legacy off-by-one: with daily=3 the usable quota is 2.
+    // First two consumes drop remaining to 2 then 1.
+    for expected_remaining in [2, 1] {
         let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 1, Utc::now())
             .await
             .unwrap();
         assert_eq!(expect_allowed(r), expected_remaining);
     }
 
-    // One more — window still open, remaining == 0 < usage.
+    // Third consume would bring remaining to 0 → predicate `remaining > 1`
+    // fails → rate-limited, no mutation.
     let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 1, Utc::now())
         .await
         .unwrap();
@@ -63,14 +70,15 @@ async fn consume_returns_rate_limited_when_window_open_and_empty() {
 
 #[tokio::test]
 async fn concurrent_consume_never_exceeds_quota() {
-    // The canary test: fire N concurrent consumes at a key with quota
-    // exactly N-1. Precisely N-1 must succeed, exactly one must be
-    // rate-limited. The old read-modify-write path could let all N win.
+    // The canary test: fire 10 concurrent consumes at a key with daily=10,
+    // remaining=10. With the legacy off-by-one predicate (`remaining > 1`)
+    // exactly 9 must succeed — the 10th would drop remaining to 0 and is
+    // refused. The old read-modify-write path could let all 10 win.
     let pool = fresh_pool().await;
     let seeded = a_key()
         .with_device("race-dev")
         .with_rate_limit(10)
-        .with_remaining(9) // tighter than daily to force the window branch
+        .with_remaining(10)
         .insert(&pool)
         .await;
 
@@ -102,17 +110,18 @@ async fn concurrent_consume_never_exceeds_quota() {
         }
     }
 
-    assert_eq!(allowed, 9, "exactly quota-many consumes win");
+    assert_eq!(allowed, 9, "exactly (daily - 1) consumes win");
     assert_eq!(limited, 1, "the surplus request is rejected");
 
-    // DB ground truth: the counter bottomed at zero, never went negative.
+    // DB ground truth: predicate `remaining > usage` keeps remaining at 1,
+    // never races into a negative counter.
     let final_remaining: i32 =
         sqlx::query_scalar("SELECT rate_limit_remaining FROM authentication_keys WHERE id = $1")
             .bind(seeded.id)
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(final_remaining, 0);
+    assert_eq!(final_remaining, 1);
 }
 
 #[tokio::test]
