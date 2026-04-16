@@ -3,7 +3,7 @@
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
 - Current phase: 1
-- Next commit: 1.3
+- Next commit: 1.4
 
 ## Checklist
 
@@ -17,7 +17,7 @@
 ### Phase 1 — domain extraction
 - [x] 1.1  tec: introduce domain module skeleton and value objects
 - [x] 1.2  tec: extract IssuedKey aggregate with lifecycle verbs
-- [ ] 1.3  tec: define AuthDenialReason enum with en/id mapping at HTTP edge
+- [x] 1.3  tec: define AuthDenialReason enum with en/id mapping at HTTP edge
 - [ ] 1.4  tec: introduce IssuedKeyRepository port + Postgres adapter
 - [ ] 1.5  tec: hide Moka auth cache behind AuthCachePort
 - [ ] 1.6  feat: route /v1/auth through AuthenticateApiKey use case
@@ -81,6 +81,7 @@
 - P0-e2e 2026-04-17 — `make e2e` (api project) run at Phase 0/1 boundary. Found the legacy off-by-one: old handler returned 429 as soon as post-decrement remaining hit `<= 0`, so only `daily - 1` consumes per window are actually usable. Preserved the semantic in `rate_limit.rs` (`remaining > usage`, `daily > usage`) and realigned the unit tests. All 10 api e2e tests green on chromium.
 - 1.1  2026-04-17 — new `src/domain/` module with the `authentication` bounded context and `DomainError`. Value objects: `AuthKey`, `DeviceId` (including the `"-"` unclaimed sentinel), `RateLimitAmount`, `RateLimitUsage`, `RateLimitWindow`, `SubscriptionName`. Every one has `parse/new` validation and unit tests covering empty / over-long / negative / zero branches — 22 tests. Nothing is wired into the HTTP path yet; this is the vocabulary that 1.2–1.6 will lean on.
 - 1.2  2026-04-17 — `src/domain/authentication/auth_decision.rs` introduces `AuthDecision` + `DenialReason`; `src/domain/authentication/issued_key.rs` hosts the `IssuedKey` aggregate with `authorize(usage, now) -> AuthDecision` (pure) plus the lifecycle verbs `revoke`, `reassign_to`, `reset_rate_limit`, `extend_until`. Authorize preserves the legacy off-by-one (`daily > usage`, `remaining > usage`) and the free-trial-vs-admin expiry split. 12 aggregate tests cover active/revoked/idempotent-revoke/expired-admin/expired-trial/off-by-one/usage>=daily/window-reset/null-updated/reassign-preserves-ledger/reset-restores-daily/extend-set-clear.
+- 1.3  2026-04-17 — new `src/interface/http/i18n.rs` with `DenialEnvelope::from_reason` + `status_code(reason)`. Strings copied byte-for-byte from the inline `json!` blocks in `src/main.rs` so e2e text assertions keep passing. 5 unit tests pin each denial shape + its legacy status code (Unknown/Revoked/Expired/FreeTrial → 401, RateLimit → 429). Not wired yet — 1.6 will mount the new envelope via the `AuthenticateApiKey` use case.
 
 ## Blockers
 
