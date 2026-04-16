@@ -8,6 +8,8 @@ pub mod components;
 pub mod db;
 pub mod domain;
 pub mod error;
+#[cfg(feature = "ssr")]
+pub mod infrastructure;
 pub mod interface;
 pub mod models;
 pub mod pages;

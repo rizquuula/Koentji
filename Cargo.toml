@@ -27,6 +27,7 @@ utoipa = { version = "4", features = ["actix_extras", "chrono"], optional = true
 utoipa-swagger-ui = { version = "7", features = ["actix-web"], optional = true }
 moka = { version = "0.12", features = ["future"], optional = true }
 env_logger = { version = "0.11", optional = true }
+async-trait = { version = "0.1", optional = true }
 wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
 http = "1"
@@ -50,6 +51,7 @@ ssr = [
     "dep:utoipa-swagger-ui",
     "dep:moka",
     "dep:env_logger",
+    "dep:async-trait",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",

@@ -9,6 +9,7 @@ pub mod auth_decision;
 pub mod auth_key;
 pub mod device_id;
 pub mod issued_key;
+pub mod issued_key_repository;
 pub mod rate_limit;
 pub mod subscription_name;
 
@@ -16,5 +17,8 @@ pub use auth_decision::{AuthDecision, DenialReason};
 pub use auth_key::AuthKey;
 pub use device_id::DeviceId;
 pub use issued_key::{IssuedKey, IssuedKeyId, RateLimitLedger, FREE_TRIAL_MARKER_DEFAULT};
+#[cfg(feature = "ssr")]
+pub use issued_key_repository::IssuedKeyRepository;
+pub use issued_key_repository::{ConsumeOutcome, RepositoryError};
 pub use rate_limit::{RateLimitAmount, RateLimitUsage, RateLimitWindow};
 pub use subscription_name::SubscriptionName;
