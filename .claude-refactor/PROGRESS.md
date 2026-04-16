@@ -3,12 +3,12 @@
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
 - Current phase: 0
-- Next commit: 0.1
+- Next commit: 0.2
 
 ## Checklist
 
 ### Phase 0 — safety net
-- [ ] 0.1  test: add integration harness and domain-test helpers
+- [x] 0.1  test: add integration harness and domain-test helpers
 - [ ] 0.2  fix: bind custom date-range parameters in dashboard stats query
 - [ ] 0.3  fix: decrement rate limit atomically on /v1/auth
 - [ ] 0.4  chore: drop stale agAuth/ references from docs
@@ -73,7 +73,7 @@
 
 ## Log
 
-(Each commit appends one line here: `<id> <short-sha> <date> — <note>`)
+- 0.1  2026-04-17 — `tests/common/{mod,clock,db,key_builder}.rs` + `tests/harness_smoke.rs`; shared test DB, KeyBuilder, TestClock. Pre-existing clippy errors in `src/` are unrelated and will be addressed later.
 
 ## Blockers
 
