@@ -58,7 +58,6 @@ pub fn KeyForm(
         let subscription_type_id_val = subscription_type_id.get();
         let rate_limit = rate_limit.get();
         let expired_at = expired_at.get();
-        let on_submit = on_submit.clone();
 
         let st_id: Option<i32> = subscription_type_id_val.parse().ok();
 

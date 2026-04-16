@@ -46,9 +46,6 @@ pub fn KeyTable(
                                     }.into_any()
                                 } else {
                                     d.keys.into_iter().map(|key| {
-                                        let on_edit = on_edit.clone();
-                                        let on_delete = on_delete.clone();
-                                        let on_reset = on_reset.clone();
                                         view! {
                                             <KeyRow
                                                 key=key

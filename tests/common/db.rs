@@ -39,8 +39,8 @@ async fn ensure_setup() {
         return;
     }
 
-    let maintenance_url = std::env::var(MAINTENANCE_URL_ENV)
-        .unwrap_or_else(|_| DEFAULT_MAINTENANCE_URL.to_string());
+    let maintenance_url =
+        std::env::var(MAINTENANCE_URL_ENV).unwrap_or_else(|_| DEFAULT_MAINTENANCE_URL.to_string());
 
     ensure_database_exists(&maintenance_url, TEST_DB_NAME).await;
 
@@ -52,8 +52,8 @@ async fn ensure_setup() {
 }
 
 async fn connect() -> PgPool {
-    let maintenance_url = std::env::var(MAINTENANCE_URL_ENV)
-        .unwrap_or_else(|_| DEFAULT_MAINTENANCE_URL.to_string());
+    let maintenance_url =
+        std::env::var(MAINTENANCE_URL_ENV).unwrap_or_else(|_| DEFAULT_MAINTENANCE_URL.to_string());
 
     let opts = PgConnectOptions::from_str(&maintenance_url)
         .expect("valid maintenance URL")

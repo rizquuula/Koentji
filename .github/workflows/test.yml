@@ -6,20 +6,44 @@ on:
     branches: [main]
     paths:
       - "src/**"
+      - "tests/**"
+      - "migrations/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "Makefile"
       - ".github/workflows/test.yml"
   pull_request:
     branches: [main]
     paths:
       - "src/**"
+      - "tests/**"
+      - "migrations/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "Makefile"
       - ".github/workflows/test.yml"
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
+
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: koentji
+          POSTGRES_PASSWORD: koentji
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U koentji"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      KOENTJI_TEST_MAINTENANCE_URL: postgres://koentji:koentji@127.0.0.1:5432/postgres
 
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +51,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          components: rustfmt, clippy
           targets: wasm32-unknown-unknown
 
       - name: Cache Rust dependencies
@@ -38,11 +63,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-test-
+          key: ${{ runner.os }}-cargo-check-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-check-
 
-      - name: Run tests (SSR)
-        run: cargo test --features ssr
-
-      - name: Run tests (lib)
-        run: cargo test --lib
+      - name: make check (fmt --check + clippy -D warnings + cargo test)
+        run: make check

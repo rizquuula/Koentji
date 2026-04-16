@@ -47,7 +47,6 @@ pub fn SubscriptionsPage() -> impl IntoView {
     });
 
     let handle_toggle_active = move |id: i32, current_active: bool| {
-        let toast = toast.clone();
         leptos::task::spawn_local(async move {
             let req = UpdateSubscriptionTypeRequest {
                 name: None,
@@ -73,7 +72,6 @@ pub fn SubscriptionsPage() -> impl IntoView {
     let do_delete = move || {
         if let Some(id) = confirm_delete_id.get_untracked() {
             confirm_delete_id.set(None);
-            let toast = toast.clone();
             leptos::task::spawn_local(async move {
                 match delete_subscription_type(id).await {
                     Ok(_) => {
@@ -266,7 +264,6 @@ fn SubscriptionForm(
         let display_name = display_name.get();
         let rate_limit_amount = rate_limit_amount.get();
         let rate_limit_interval_id = rate_limit_interval_id.get();
-        let on_submit = on_submit.clone();
 
         leptos::task::spawn_local(async move {
             let result = if let Some(id) = editing_id {

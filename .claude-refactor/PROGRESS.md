@@ -2,8 +2,8 @@
 
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
-- Current phase: 0
-- Next commit: 0.5
+- Current phase: 1
+- Next commit: 1.1
 
 ## Checklist
 
@@ -12,7 +12,7 @@
 - [x] 0.2  fix: bind custom date-range parameters in dashboard stats query
 - [x] 0.3  fix: decrement rate limit atomically on /v1/auth
 - [x] 0.4  chore: drop stale agAuth/ references from docs
-- [ ] 0.5  tec: make check aggregates fmt + clippy + test; CI runs it
+- [x] 0.5  tec: make check aggregates fmt + clippy + test; CI runs it
 
 ### Phase 1 — domain extraction
 - [ ] 1.1  tec: introduce domain module skeleton and value objects
@@ -77,6 +77,7 @@
 - 0.2  2026-04-17 — `src/server/stats_service.rs` rewritten to bind `Option<DateTime<Utc>>` into every query. `custom` range now parses strictly as YYYY-MM-DD — malformed input degrades to (None, None). 6 regression tests in `tests/stats_date_range.rs`.
 - 0.3  2026-04-17 — new `src/rate_limit.rs` with `consume_rate_limit`: a single `UPDATE … RETURNING` decides reset-vs-decrement in-SQL and locks the row, closing the read-modify-write leak. `/v1/auth` no longer spawns a fire-and-forget writer. 6 regression tests in `tests/rate_limit_atomic.rs` including a 10-concurrent-spawn race probe. `tests/common/db.rs` hands each `#[tokio::test]` a runtime-local pool (PgPool isn't runtime-portable) while keeping DB setup + migrations one-shot per process.
 - 0.4  2026-04-17 — `README.md` + `CLAUDE.md` no longer claim a sibling `agAuth/` crate; replaced with an accurate single-crate layer table that mentions the `tests/` + `end2end/` suites.
+- 0.5  2026-04-17 — `make test` no longer calls `cargo fmt` (which rewrites in CI); new `make check = fmt-check + clippy (-D warnings, --tests) + test`. Also cleared the ~10 pre-existing `clone_on_copy` / `if let`-rewriteable clippy warnings in `src/pages` / `src/components` / `src/main.rs` so the gate is actually usable. `.github/workflows/test.yml` now runs `make check` against a Postgres service container.
 
 ## Blockers
 

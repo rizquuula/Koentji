@@ -1,4 +1,4 @@
-.PHONY: help dev run build fmt clippy test clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs docker-pull tailwind e2e e2e-install
+.PHONY: help dev run build fmt fmt-check clippy test check clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs docker-pull tailwind e2e e2e-install refactor-status refactor-next
 
 -include .env
 export
@@ -44,11 +44,16 @@ migrate: ## Run pending migrations
 fmt: ## Format code
 	cargo fmt
 
-clippy: ## Run clippy lints
-	cargo clippy --all-features -- -D warnings
+fmt-check: ## Check formatting without rewriting (CI-safe)
+	cargo fmt --check
 
-test: fmt ## Run tests
-	cargo test
+clippy: ## Run clippy lints (all features, deny warnings)
+	cargo clippy --all-features --tests -- -D warnings
+
+test: ## Run Rust tests with ssr feature enabled
+	cargo test --features ssr
+
+check: fmt-check clippy test ## fmt --check + clippy -D warnings + cargo test (safety gate)
 
 clean: ## Clean build artifacts
 	cargo clean
@@ -78,3 +83,10 @@ e2e-install: ## Install Playwright browsers and dependencies
 
 e2e: ## Run Playwright end-to-end test suite
 	cd end2end && npx playwright test
+
+## Refactor progress (staged DDD remediation)
+refactor-status: ## Show staged refactor progress
+	@sed -n '/## Checklist/,/## Log/p' .claude-refactor/PROGRESS.md
+
+refactor-next: ## Print the next unchecked refactor commit
+	@grep -m1 '^- \[ \]' .claude-refactor/PROGRESS.md || echo "All done."

@@ -298,8 +298,8 @@ async fn auth_endpoint(
     };
 
     // 2. Check revoked
-    if key.deleted_at.is_some() {
-        let deleted_at = key.deleted_at.unwrap().to_rfc3339();
+    if let Some(deleted_at) = key.deleted_at {
+        let deleted_at = deleted_at.to_rfc3339();
         log::warn!(
             "Auth failed - revoked key: device={}, revoked_at={}",
             key.device_id,
@@ -365,7 +365,11 @@ async fn auth_endpoint(
     {
         Ok(r) => r,
         Err(e) => {
-            log::error!("Rate-limit consume failed for device={}: {}", key.device_id, e);
+            log::error!(
+                "Rate-limit consume failed for device={}: {}",
+                key.device_id,
+                e
+            );
             return actix_web::HttpResponse::InternalServerError().json(json!({
                 "error": { "en": "Internal server error." },
                 "message": "Internal server error."

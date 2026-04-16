@@ -44,7 +44,6 @@ pub fn LimitsIntervalPage() -> impl IntoView {
     });
 
     let handle_toggle_active = move |id: i32, current_active: bool| {
-        let toast = toast.clone();
         leptos::task::spawn_local(async move {
             let req = UpdateRateLimitIntervalRequest {
                 name: None,
@@ -69,7 +68,6 @@ pub fn LimitsIntervalPage() -> impl IntoView {
     let do_delete = move || {
         if let Some(id) = confirm_delete_id.get_untracked() {
             confirm_delete_id.set(None);
-            let toast = toast.clone();
             leptos::task::spawn_local(async move {
                 match delete_rate_limit_interval(id).await {
                     Ok(_) => {
@@ -261,7 +259,6 @@ fn RateLimitIntervalForm(
         let name = name.get();
         let display_name = display_name.get();
         let duration_seconds = duration_seconds.get();
-        let on_submit = on_submit.clone();
 
         leptos::task::spawn_local(async move {
             let result = if let Some(id) = editing_id {

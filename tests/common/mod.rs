@@ -13,4 +13,4 @@ pub mod key_builder;
 
 pub use clock::{Clock, SystemClock, TestClock};
 pub use db::{fresh_pool, reset, test_pool};
-pub use key_builder::{a_free_trial_key, a_key, an_expired_key, a_revoked_key, KeyBuilder};
+pub use key_builder::{a_free_trial_key, a_key, a_revoked_key, an_expired_key, KeyBuilder};
