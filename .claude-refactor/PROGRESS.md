@@ -3,7 +3,7 @@
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
 - Current phase: 3
-- Next commit: 3.2
+- Next commit: 3.3
 
 ## Checklist
 
@@ -33,7 +33,7 @@
 
 ### Phase 3 — schema hardening
 - [x] 3.1  feat: enforce UNIQUE(key, device_id)
-- [ ] 3.2  feat: index authentication_keys on (key, device_id)
+- [x] 3.2  feat: index authentication_keys on (key, device_id) — subsumed by 3.1's unique index
 - [ ] 3.3  feat: audit_log table captures domain events
 - [ ] 3.4  tec: outbox adapter publishes domain events to audit_log
 
@@ -94,6 +94,7 @@
 - 2.5  2026-04-17 — +11 adapter integration tests in `tests/postgres_issued_key_repository.rs` covering all five admin verbs (`issue_key` happy-path + remaining=daily, `revoke_key` happy/idempotent-timestamp-preserved/unknown-id, `reassign_device` returns prev+curr/unknown-id, `reset_rate_limit` restores+stamps/unknown-id, `extend_expiration` set+clear/unknown-id). New `tests/key_management_use_cases.rs` (9 tests) uses in-memory `FakeRepo`/`FakeCache` to pin use-case orchestration: every state-mutating verb evicts the cache on success; `ReassignDevice` evicts BOTH `(key, prev_dev)` and `(key, new_dev)` (B9 guard); unknown ids short-circuit without touching the cache; `IssueKey` never touches the cache at all. Also fixes a pre-existing harness flake: added `--test-threads=1` to `make test` — integration tests share one Postgres DB and coordinate via `reset()`, so parallel TRUNCATEs were stomping on the in-flight concurrency test. 110 rust tests across 8 suites all green.
 - P2-e2e 2026-04-17 — Phase 2 boundary `make e2e`: 77/77 green (53 chromium + 10 api + 14 webkit smoke). `/v1/auth` envelope unchanged; admin CRUD flows still work through the new IssueKey / RevokeKey / ReassignDevice / ResetRateLimit / ExtendExpiration use cases.
 - 3.1  2026-04-17 — `migrations/004_unique_key_device.sql` closes B10. The migration first dedups any ambient duplicate `(key, device_id)` pairs (keeps the most recent `id`, drops the rest — matches "last write wins" admin mental model) and then creates `idx_auth_keys_key_device_unique`. The `IssuedKey` aggregate already addresses rows by this tuple (`find` / `consume_quota` / `revoke_key`), so the constraint is a database-level guarantee of an invariant the domain has always assumed. Two new tests in `tests/schema_constraints.rs` pin the constraint: duplicate `(key, device_id)` is rejected with an error mentioning the index name; the same `key` with different `device_id` is still permitted (FREE_TRIAL and pre-issued rows need this). 112 rust tests across 9 suites green.
+- 3.2  2026-04-17 — **no new migration** — 3.1's `idx_auth_keys_key_device_unique` already serves as the hot-path composite btree. Postgres's query planner treats a unique btree identically to a plain composite btree for equality lookups on `(key, device_id)`, so adding a second index would be duplication. Closes B11 as a consequence of 3.1.
 
 ## Blockers
 
