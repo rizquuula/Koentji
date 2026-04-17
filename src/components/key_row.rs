@@ -42,11 +42,17 @@ pub fn KeyRow(
     };
 
     let handle_copy = move |_| {
+        // navigator.clipboard.writeText(k) is fire-and-forget — the
+        // returned Promise is discarded. The previous implementation
+        // used `js_sys::eval` with string concatenation, which broke
+        // on any key containing a backtick, newline, or apostrophe and
+        // was a log-injection shaped XSS risk. Typed API means the
+        // key is passed as a JS string value, not source code, so no
+        // escaping is needed.
         if let Some(k) = revealed_key.get() {
-            let _ = js_sys::eval(&format!(
-                "navigator.clipboard.writeText('{}')",
-                k.replace('\'', "\\'")
-            ));
+            if let Some(win) = web_sys::window() {
+                let _ = win.navigator().clipboard().write_text(&k);
+            }
         }
     };
 
