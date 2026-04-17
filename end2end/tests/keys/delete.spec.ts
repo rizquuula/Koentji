@@ -25,9 +25,9 @@ test.describe('delete (revoke) key', () => {
     const row = page.getByRole('row').filter({ hasText: DEVICE });
     await row.getByRole('button', { name: /Revoke/i }).click();
 
-    await expect(page.getByRole('heading', { name: 'Revoke API Key' })).toBeVisible();
-    // The modal confirm button is the only red (bg-red-600) button on the page.
-    await page.locator('button.bg-red-600', { hasText: /^Revoke$/ }).click();
+    const dialog = page.getByRole('alertdialog', { name: 'Revoke API Key' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: /^Revoke$/ }).click();
 
     await expect(page.getByRole('heading', { name: 'Revoke API Key' })).toHaveCount(0);
 

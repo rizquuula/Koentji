@@ -62,9 +62,9 @@ test.describe('subscription types CRUD', () => {
     await expect(row).toBeVisible();
 
     await row.getByRole('button', { name: /^Delete$/ }).click();
-    await expect(page.getByRole('heading', { name: 'Delete Subscription Type' })).toBeVisible();
-    // The modal confirm button is the only bg-red-600 button on the page.
-    await page.locator('button.bg-red-600', { hasText: /^Delete$/ }).click();
+    const dialog = page.getByRole('alertdialog', { name: 'Delete Subscription Type' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: /^Delete$/ }).click();
 
     await expect(page.getByRole('cell', { name: DELETE_NAME, exact: true })).toHaveCount(0);
   });
