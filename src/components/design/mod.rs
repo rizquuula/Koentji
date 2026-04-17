@@ -7,14 +7,18 @@
 
 pub mod badge;
 pub mod button;
+pub mod data_table;
 pub mod input;
+pub mod page_header;
 pub mod select;
 pub mod stack;
 pub mod surface;
 
 pub use badge::{Badge, BadgeTone};
 pub use button::{Button, ButtonType, ButtonVariant};
+pub use data_table::DataTable;
 pub use input::Input;
+pub use page_header::PageHeader;
 pub use select::Select;
 pub use stack::{Stack, StackGap};
 pub use surface::Surface;

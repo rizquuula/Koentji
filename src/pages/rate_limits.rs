@@ -1,6 +1,8 @@
 use leptos::prelude::*;
 
-use crate::components::design::{Button, ButtonType, ButtonVariant, Input, Stack};
+use crate::components::design::{
+    Badge, BadgeTone, Button, ButtonType, ButtonVariant, DataTable, Input, PageHeader, Stack,
+};
 use crate::components::layout::Layout;
 use crate::components::modal::{ConfirmModal, Modal};
 use crate::components::toast::use_toast;
@@ -85,88 +87,79 @@ pub fn LimitsIntervalPage() -> impl IntoView {
         <Layout active_tab="limits_interval">
             <div class="space-y-6">
                 <div class="flex justify-between items-center">
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-900">"Rate Limit Intervals"</h1>
-                        <p class="text-sm text-gray-500 mt-1">"Manage available rate limit interval periods"</p>
-                    </div>
-                    <button
-                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
-                        on:click=open_create
+                    <PageHeader
+                        title="Rate Limit Intervals"
+                        subtitle="Manage available rate limit interval periods"
+                    />
+                    <Button
+                        variant=ButtonVariant::Primary
+                        on_click=Callback::new(open_create)
                     >
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                        </svg>
-                        <span>"Add Interval"</span>
-                    </button>
+                        <span class="inline-flex items-center space-x-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                            </svg>
+                            <span>"Add Interval"</span>
+                        </span>
+                    </Button>
                 </div>
 
-                <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
-                    <Suspense fallback=|| view! { <div class="p-8 text-center text-gray-400">"Loading..."</div> }>
-                        {move || intervals_resource.get().map(|result| {
-                            match result {
-                                Ok(intervals) => view! {
-                                    <table class="w-full">
-                                        <thead class="bg-gray-50">
-                                            <tr>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Name"</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Display Name"</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Duration"</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Status"</th>
-                                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">"Actions"</th>
+                <Suspense fallback=|| view! {
+                    <div class="bg-surface-base rounded-card shadow-raised border border-surface-border p-8 text-center text-ink-disabled">
+                        "Loading..."
+                    </div>
+                }>
+                    {move || intervals_resource.get().map(|result| {
+                        match result {
+                            Ok(intervals) => view! {
+                                <DataTable headers=vec!["Name", "Display Name", "Duration", "Status", "Actions"]>
+                                    {intervals.into_iter().map(|interval| {
+                                        let interval_edit = interval.clone();
+                                        let id = interval.id;
+                                        let is_active = interval.is_active;
+                                        view! {
+                                            <tr class="hover:bg-surface-subtle">
+                                                <td class="px-6 py-4 text-sm font-mono text-ink-heading">{interval.name.clone()}</td>
+                                                <td class="px-6 py-4 text-sm text-ink-heading">{interval.display_name.clone()}</td>
+                                                <td class="px-6 py-4 text-sm text-ink-muted">{format_duration(interval.duration_seconds)}</td>
+                                                <td class="px-6 py-4">
+                                                    <Badge tone=if interval.is_active { BadgeTone::Success } else { BadgeTone::Neutral }>
+                                                        {if interval.is_active { "Active" } else { "Inactive" }}
+                                                    </Badge>
+                                                </td>
+                                                <td class="px-6 py-4 text-right space-x-2">
+                                                    <button
+                                                        class="text-sm text-brand-600 hover:text-brand-800"
+                                                        on:click=move |_| open_edit(interval_edit.clone())
+                                                    >
+                                                        "Edit"
+                                                    </button>
+                                                    <button
+                                                        class="text-sm text-feedback-warning hover:text-feedback-warning-ink"
+                                                        on:click=move |_| handle_toggle_active(id, is_active)
+                                                    >
+                                                        {if is_active { "Deactivate" } else { "Activate" }}
+                                                    </button>
+                                                    <button
+                                                        class="text-sm text-feedback-danger hover:text-feedback-danger-ink"
+                                                        on:click=move |_| confirm_delete_id.set(Some(id))
+                                                    >
+                                                        "Delete"
+                                                    </button>
+                                                </td>
                                             </tr>
-                                        </thead>
-                                        <tbody class="divide-y divide-gray-200">
-                                            {intervals.into_iter().map(|interval| {
-                                                let interval_edit = interval.clone();
-                                                let id = interval.id;
-                                                let is_active = interval.is_active;
-                                                view! {
-                                                    <tr class="hover:bg-gray-50">
-                                                        <td class="px-6 py-4 text-sm font-mono text-gray-900">{interval.name.clone()}</td>
-                                                        <td class="px-6 py-4 text-sm text-gray-900">{interval.display_name.clone()}</td>
-                                                        <td class="px-6 py-4 text-sm text-gray-500">{format_duration(interval.duration_seconds)}</td>
-                                                        <td class="px-6 py-4">
-                                                            <span class={if interval.is_active {
-                                                                "px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800"
-                                                            } else {
-                                                                "px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600"
-                                                            }}>
-                                                                {if interval.is_active { "Active" } else { "Inactive" }}
-                                                            </span>
-                                                        </td>
-                                                        <td class="px-6 py-4 text-right space-x-2">
-                                                            <button
-                                                                class="text-sm text-blue-600 hover:text-blue-800"
-                                                                on:click=move |_| open_edit(interval_edit.clone())
-                                                            >
-                                                                "Edit"
-                                                            </button>
-                                                            <button
-                                                                class="text-sm text-yellow-600 hover:text-yellow-800"
-                                                                on:click=move |_| handle_toggle_active(id, is_active)
-                                                            >
-                                                                {if is_active { "Deactivate" } else { "Activate" }}
-                                                            </button>
-                                                            <button
-                                                                class="text-sm text-red-600 hover:text-red-800"
-                                                                on:click=move |_| confirm_delete_id.set(Some(id))
-                                                            >
-                                                                "Delete"
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                        </tbody>
-                                    </table>
-                                }.into_any(),
-                                Err(e) => view! {
-                                    <div class="p-8 text-center text-red-500">{format!("Error: {}", e)}</div>
-                                }.into_any(),
-                            }
-                        })}
-                    </Suspense>
-                </div>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                </DataTable>
+                            }.into_any(),
+                            Err(e) => view! {
+                                <div class="bg-surface-base rounded-card shadow-raised border border-surface-border p-8 text-center text-feedback-danger">
+                                    {format!("Error: {}", e)}
+                                </div>
+                            }.into_any(),
+                        }
+                    })}
+                </Suspense>
 
                 <Show when=move || show_form.get()>
                     <Modal

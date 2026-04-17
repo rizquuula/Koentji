@@ -1,6 +1,9 @@
 use leptos::prelude::*;
 
-use crate::components::design::{Button, ButtonType, ButtonVariant, Input, Select, Stack};
+use crate::components::design::{
+    Badge, BadgeTone, Button, ButtonType, ButtonVariant, DataTable, Input, PageHeader, Select,
+    Stack,
+};
 use crate::components::layout::Layout;
 use crate::components::modal::{ConfirmModal, Modal};
 use crate::components::toast::use_toast;
@@ -97,95 +100,85 @@ pub fn SubscriptionsPage() -> impl IntoView {
         <Layout active_tab="subscriptions">
             <div class="space-y-6">
                 <div class="flex justify-between items-center">
-                    <div>
-                        <h1 class="text-2xl font-bold text-gray-900">"Subscription Types"</h1>
-                        <p class="text-sm text-gray-500 mt-1">"Manage subscription tiers and their rate limits"</p>
-                    </div>
-                    <button
-                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
-                        on:click=open_create
+                    <PageHeader
+                        title="Subscription Types"
+                        subtitle="Manage subscription tiers and their rate limits"
+                    />
+                    <Button
+                        variant=ButtonVariant::Primary
+                        on_click=Callback::new(open_create)
                     >
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                        </svg>
-                        <span>"Add Subscription"</span>
-                    </button>
+                        <span class="inline-flex items-center space-x-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                            </svg>
+                            <span>"Add Subscription"</span>
+                        </span>
+                    </Button>
                 </div>
 
-                <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
-                    <Suspense fallback=|| view! { <div class="p-8 text-center text-gray-400">"Loading..."</div> }>
-                        {move || subs_resource.get().map(|result| {
-                            let intervals = interval_map();
-                            match result {
-                                Ok(subs) => view! {
-                                    <table class="w-full">
-                                        <thead class="bg-gray-50">
-                                            <tr>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Name"</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Display Name"</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Rate Limit"</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Interval"</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Status"</th>
-                                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">"Actions"</th>
+                <Suspense fallback=|| view! {
+                    <div class="bg-surface-base rounded-card shadow-raised border border-surface-border p-8 text-center text-ink-disabled">
+                        "Loading..."
+                    </div>
+                }>
+                    {move || subs_resource.get().map(|result| {
+                        let intervals = interval_map();
+                        match result {
+                            Ok(subs) => view! {
+                                <DataTable headers=vec!["Name", "Display Name", "Rate Limit", "Interval", "Status", "Actions"]>
+                                    {subs.into_iter().map(|sub| {
+                                        let sub_edit = sub.clone();
+                                        let id = sub.id;
+                                        let is_active = sub.is_active;
+                                        let interval_name = intervals.iter()
+                                            .find(|i| i.id == sub.rate_limit_interval_id)
+                                            .map(|i| i.display_name.clone())
+                                            .unwrap_or_else(|| "Unknown".to_string());
+                                        view! {
+                                            <tr class="hover:bg-surface-subtle">
+                                                <td class="px-6 py-4 text-sm font-mono text-ink-heading">{sub.name.clone()}</td>
+                                                <td class="px-6 py-4 text-sm text-ink-heading">{sub.display_name.clone()}</td>
+                                                <td class="px-6 py-4 text-sm text-ink-heading">{sub.rate_limit_amount.to_string()}</td>
+                                                <td class="px-6 py-4 text-sm text-ink-muted">{interval_name}</td>
+                                                <td class="px-6 py-4">
+                                                    <Badge tone=if sub.is_active { BadgeTone::Success } else { BadgeTone::Neutral }>
+                                                        {if sub.is_active { "Active" } else { "Inactive" }}
+                                                    </Badge>
+                                                </td>
+                                                <td class="px-6 py-4 text-right space-x-2">
+                                                    <button
+                                                        class="text-sm text-brand-600 hover:text-brand-800"
+                                                        on:click=move |_| open_edit(sub_edit.clone())
+                                                    >
+                                                        "Edit"
+                                                    </button>
+                                                    <button
+                                                        class="text-sm text-feedback-warning hover:text-feedback-warning-ink"
+                                                        on:click=move |_| handle_toggle_active(id, is_active)
+                                                    >
+                                                        {if is_active { "Deactivate" } else { "Activate" }}
+                                                    </button>
+                                                    <button
+                                                        class="text-sm text-feedback-danger hover:text-feedback-danger-ink"
+                                                        on:click=move |_| confirm_delete_id.set(Some(id))
+                                                    >
+                                                        "Delete"
+                                                    </button>
+                                                </td>
                                             </tr>
-                                        </thead>
-                                        <tbody class="divide-y divide-gray-200">
-                                            {subs.into_iter().map(|sub| {
-                                                let sub_edit = sub.clone();
-                                                let id = sub.id;
-                                                let is_active = sub.is_active;
-                                                let interval_name = intervals.iter()
-                                                    .find(|i| i.id == sub.rate_limit_interval_id)
-                                                    .map(|i| i.display_name.clone())
-                                                    .unwrap_or_else(|| "Unknown".to_string());
-                                                view! {
-                                                    <tr class="hover:bg-gray-50">
-                                                        <td class="px-6 py-4 text-sm font-mono text-gray-900">{sub.name.clone()}</td>
-                                                        <td class="px-6 py-4 text-sm text-gray-900">{sub.display_name.clone()}</td>
-                                                        <td class="px-6 py-4 text-sm text-gray-900">{sub.rate_limit_amount.to_string()}</td>
-                                                        <td class="px-6 py-4 text-sm text-gray-500">{interval_name}</td>
-                                                        <td class="px-6 py-4">
-                                                            <span class={if sub.is_active {
-                                                                "px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800"
-                                                            } else {
-                                                                "px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600"
-                                                            }}>
-                                                                {if sub.is_active { "Active" } else { "Inactive" }}
-                                                            </span>
-                                                        </td>
-                                                        <td class="px-6 py-4 text-right space-x-2">
-                                                            <button
-                                                                class="text-sm text-blue-600 hover:text-blue-800"
-                                                                on:click=move |_| open_edit(sub_edit.clone())
-                                                            >
-                                                                "Edit"
-                                                            </button>
-                                                            <button
-                                                                class="text-sm text-yellow-600 hover:text-yellow-800"
-                                                                on:click=move |_| handle_toggle_active(id, is_active)
-                                                            >
-                                                                {if is_active { "Deactivate" } else { "Activate" }}
-                                                            </button>
-                                                            <button
-                                                                class="text-sm text-red-600 hover:text-red-800"
-                                                                on:click=move |_| confirm_delete_id.set(Some(id))
-                                                            >
-                                                                "Delete"
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                        </tbody>
-                                    </table>
-                                }.into_any(),
-                                Err(e) => view! {
-                                    <div class="p-8 text-center text-red-500">{format!("Error: {}", e)}</div>
-                                }.into_any(),
-                            }
-                        })}
-                    </Suspense>
-                </div>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                </DataTable>
+                            }.into_any(),
+                            Err(e) => view! {
+                                <div class="bg-surface-base rounded-card shadow-raised border border-surface-border p-8 text-center text-feedback-danger">
+                                    {format!("Error: {}", e)}
+                                </div>
+                            }.into_any(),
+                        }
+                    })}
+                </Suspense>
 
                 <Show when=move || show_form.get()>
                     <Modal
