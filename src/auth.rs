@@ -2,29 +2,30 @@ use leptos::prelude::*;
 
 #[server]
 pub async fn login(username: String, password: String) -> Result<bool, ServerFnError> {
+    use crate::domain::admin_access::equals_in_constant_time;
     use actix_session::Session;
     use leptos_actix::extract;
 
-    // `ADMIN_USERNAME` is not a secret — straight string compare.
     let admin_username = std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string());
-    if username != admin_username {
-        log::warn!("Admin login failed: username={username}");
-        return Ok(false);
-    }
 
     // Password precedence: prefer the argon2id PHC hash
     // (`ADMIN_PASSWORD_HASH`) and fall back to plaintext
     // (`ADMIN_PASSWORD`) for dev / e2e. An invalid hash is a deploy-time
     // mistake and fails closed here — we don't silently fall back to
     // plaintext since that would mask the misconfiguration.
-    let creds = load_admin_credentials();
-
-    let Some(creds) = creds else {
+    let Some(creds) = load_admin_credentials() else {
         log::error!("Admin login refused: neither ADMIN_PASSWORD_HASH nor ADMIN_PASSWORD is set");
         return Ok(false);
     };
 
-    if creds.verify(&password) {
+    // Run both checks unconditionally so wrong-username and
+    // wrong-password requests aren't timing-distinguishable. Bitwise
+    // `&` on `bool` is non-short-circuiting in Rust, so both `user_ok`
+    // and `pw_ok` are always fully evaluated before they combine.
+    let user_ok = equals_in_constant_time(&username, &admin_username);
+    let pw_ok = creds.verify(&password);
+
+    if user_ok & pw_ok {
         let session = extract::<Session>().await?;
         session
             .insert("username", &username)

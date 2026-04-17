@@ -13,5 +13,9 @@
 //! public to its caller; the admin password is not).
 
 pub mod admin_credentials;
+#[cfg(feature = "ssr")]
+pub mod constant_time;
 
 pub use admin_credentials::{AdminCredentials, CredentialError};
+#[cfg(feature = "ssr")]
+pub use constant_time::equals_in_constant_time;
