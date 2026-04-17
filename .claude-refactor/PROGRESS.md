@@ -3,7 +3,7 @@
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
 - Current phase: 3
-- Next commit: 3.3
+- Next commit: 3.4
 
 ## Checklist
 
@@ -34,7 +34,7 @@
 ### Phase 3 — schema hardening
 - [x] 3.1  feat: enforce UNIQUE(key, device_id)
 - [x] 3.2  feat: index authentication_keys on (key, device_id) — subsumed by 3.1's unique index
-- [ ] 3.3  feat: audit_log table captures domain events
+- [x] 3.3  feat: audit_log table captures domain events
 - [ ] 3.4  tec: outbox adapter publishes domain events to audit_log
 
 ### Phase 4 — admin auth hardening
@@ -95,6 +95,7 @@
 - P2-e2e 2026-04-17 — Phase 2 boundary `make e2e`: 77/77 green (53 chromium + 10 api + 14 webkit smoke). `/v1/auth` envelope unchanged; admin CRUD flows still work through the new IssueKey / RevokeKey / ReassignDevice / ResetRateLimit / ExtendExpiration use cases.
 - 3.1  2026-04-17 — `migrations/004_unique_key_device.sql` closes B10. The migration first dedups any ambient duplicate `(key, device_id)` pairs (keeps the most recent `id`, drops the rest — matches "last write wins" admin mental model) and then creates `idx_auth_keys_key_device_unique`. The `IssuedKey` aggregate already addresses rows by this tuple (`find` / `consume_quota` / `revoke_key`), so the constraint is a database-level guarantee of an invariant the domain has always assumed. Two new tests in `tests/schema_constraints.rs` pin the constraint: duplicate `(key, device_id)` is rejected with an error mentioning the index name; the same `key` with different `device_id` is still permitted (FREE_TRIAL and pre-issued rows need this). 112 rust tests across 9 suites green.
 - 3.2  2026-04-17 — **no new migration** — 3.1's `idx_auth_keys_key_device_unique` already serves as the hot-path composite btree. Postgres's query planner treats a unique btree identically to a plain composite btree for equality lookups on `(key, device_id)`, so adding a second index would be duplication. Closes B11 as a consequence of 3.1.
+- 3.3  2026-04-17 — `migrations/005_audit_log.sql` adds the durable `audit_log` table (`id`, `event_type`, `aggregate_id`, `actor`, `payload JSONB`, `occurred_at`). Two indexes cover the expected dashboards: `idx_audit_log_occurred_at` (recent-first scrolling) and a partial `idx_audit_log_aggregate` on `(aggregate_id, occurred_at DESC) WHERE aggregate_id IS NOT NULL` (per-key history). Payload is JSONB so 3.4 can evolve the shape without another migration. No code changes yet — 3.4 wires the outbox adapter that writes rows from the use-case layer.
 
 ## Blockers
 
