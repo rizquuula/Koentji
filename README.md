@@ -1,21 +1,17 @@
 # Koentji
 
-API key management dashboard and authentication service. Lets you issue, manage, and revoke API keys with subscription tiers and configurable rate limits. External applications authenticate their users against the `/v1/auth` endpoint.
+API key management dashboard and authentication service. Issues, manages, and revokes API keys with subscription tiers and configurable rate limits. External applications authenticate their users against a single public endpoint: `POST /v1/auth`.
+
+One Rust binary serves the admin dashboard (Leptos SSR + WASM hydration) and the public `/v1/auth` API from the same Actix-Web process.
 
 ## Stack
 
-- **Backend / SSR**: Rust · [Leptos](https://leptos.dev) · Actix-Web
-- **Frontend**: Leptos (WASM hydration) · TailwindCSS
-- **Database**: PostgreSQL (SQLx migrations)
-- **Cache**: Moka in-memory cache for auth lookups
+- **Backend**: Rust · Actix-Web · SQLx
+- **Frontend**: [Leptos](https://leptos.dev) (SSR + WASM) · TailwindCSS
+- **Database**: PostgreSQL (migrations embedded via `build.rs`)
+- **Auth cache**: Moka in-memory LRU behind a domain port
 
-## Quick Start
-
-### Prerequisites
-
-- Rust (stable) + [`cargo-leptos`](https://github.com/leptos-rs/cargo-leptos)
-- Node.js (for TailwindCSS)
-- PostgreSQL **or** Docker
+## Quick start
 
 ### With Docker (recommended)
 
@@ -24,29 +20,18 @@ cp .env.example .env          # adjust values as needed
 make docker-up                # starts app + db
 ```
 
-### Local Development
+### Local development
 
 ```bash
-cp .env.example .env          # adjust DATABASE_URL, SECRET_KEY, etc.
-make docker-up-db             # start only the DB
+cp .env.example .env
+make docker-up-db             # just the DB
 make migrate                  # run pending SQL migrations
-make dev                      # start dev server with live reload
+make dev                      # cargo leptos watch + tailwind
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open <http://localhost:3000>.
 
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | — | PostgreSQL connection string |
-| `SECRET_KEY` | — | Cookie signing key (≥ 64 bytes) |
-| `ADMIN_USERNAME` | `admin` | Dashboard login |
-| `ADMIN_PASSWORD` | `admin` | Dashboard password |
-| `FREE_TRIAL_KEY` | `FREE_TRIAL` | Sending this as `auth_key` auto-creates a free-trial record |
-| `AUTH_CACHE_TTL_SECONDS` | `900` | Auth result cache TTL (seconds) |
-
-## Authentication API
+## Public API
 
 `POST /v1/auth`
 
@@ -58,41 +43,75 @@ Open [http://localhost:3000](http://localhost:3000).
 }
 ```
 
-| Status | Meaning |
-|--------|---------|
-| 200 | Key is valid; returns subscription info and remaining rate limit |
-| 401 | Key invalid, not found, revoked, or expired |
-| 429 | Rate limit exceeded |
-| 500 | Internal server error |
+| Status | Meaning                                                  |
+|--------|----------------------------------------------------------|
+| 200    | Key valid; envelope reports subscription + remaining quota |
+| 401    | Key unknown, revoked, expired, or free trial ended        |
+| 429    | Rate limit exceeded                                      |
 
-Interactive docs: [http://localhost:3000/docs/](http://localhost:3000/docs/)
+Interactive OpenAPI docs at <http://localhost:3000/docs/> when the server is running.
 
-## Project Structure
+## Environment
+
+See [.env.example](.env.example). Required in every environment:
+
+| Variable                | Default         | Purpose                                          |
+|-------------------------|-----------------|--------------------------------------------------|
+| `DATABASE_URL`          | —               | Postgres DSN                                     |
+| `SECRET_KEY`            | —               | Cookie signing key (≥ 64 bytes)                  |
+| `ADMIN_USERNAME`        | `admin`         | Dashboard login                                  |
+| `ADMIN_PASSWORD_HASH`   | —               | **Use in production.** argon2id PHC string; generate via `make hash-admin-password PASSWORD=...` |
+| `ADMIN_PASSWORD`        | `admin`         | Plaintext fallback — dev/e2e only; logs a warning at boot |
+| `FREE_TRIAL_KEY`        | `FREE_TRIAL`    | Marker value that auto-provisions a trial row on first call |
+| `AUTH_CACHE_TTL_SECONDS`| `900`           | Moka auth-cache TTL                              |
+| `COOKIE_SECURE`         | `true`          | Set to `false` only for plain-HTTP local dev     |
+| `WORKERS`               | `4`             | Actix worker threads                             |
+
+## Makefile
+
+Every non-trivial command has a target. Run `make` (or `make help`) for the full list. Daily drivers:
+
+| Target                    | What it does                                                                |
+|---------------------------|-----------------------------------------------------------------------------|
+| `make dev`                | dev server with live reload                                                 |
+| `make migrate`            | apply pending SQL migrations                                                |
+| `make check`              | `fmt --check` + `clippy -D warnings` + `cargo test` — the safety gate       |
+| `make e2e`                | Playwright suite (admin CRUD + `/v1/auth` contract + hydration smoke)       |
+| `make hash-admin-password`| print an argon2id hash for `ADMIN_PASSWORD_HASH`                            |
+| `make docker-up`          | start the full stack                                                        |
+| `make refactor-status`    | show the staged refactor checklist                                          |
+
+## Repository layout
 
 ```
 src/
-├── main.rs          Actix-Web server, /v1/auth endpoint, OpenAPI spec
-├── app.rs           Leptos router
-├── auth.rs          Admin session management
-├── cache.rs         In-memory auth cache
-├── db.rs            Database pool + migrations
-├── models.rs        Core data models
-├── components/      Reusable UI components
-├── pages/           Page-level components
-└── server/          Leptos server functions
-migrations/          SQL migration files
-tests/               Rust integration tests (harness + domain coverage)
-end2end/             Playwright end-to-end suite
+├── main.rs              Actix server wiring (use cases live in application/)
+├── app.rs               Leptos router
+├── auth.rs              Admin login/logout server fns
+├── db.rs                Pool + migration runner
+├── domain/              Entities, value objects, ports, events — no framework deps
+├── application/         Use cases (Authenticate, IssueKey, RevokeKey, …)
+├── infrastructure/      Postgres repositories, Moka cache, argon2, telemetry
+├── interface/http/      Actix adapters: /v1/auth endpoint, i18n, /healthz, /readyz
+├── server/              Leptos server functions (thin adapters to application/)
+└── ui/                  Leptos components organised by feature folder
+    ├── design/          Tokens + primitives (Button, Input, Modal, DataTable, …)
+    ├── shell/           Layout + nav
+    ├── keys/ subscriptions/ rate_limits/ dashboard/ admin_access/ marketing/
+migrations/              SQL migrations (embedded into the binary)
+tests/                   Rust integration tests (Postgres-backed harness)
+end2end/                 Playwright e2e suite
 ```
 
-## Makefile Targets
+## Testing
 
+```bash
+make check   # fmt + clippy + unit/integration tests
+make e2e     # Playwright suite against a live server
 ```
-make dev          Start dev server (hot-reload)
-make build        Production release build
-make migrate      Run pending DB migrations
-make fmt          Format code (cargo fmt)
-make clippy       Run lints
-make docker-up    Start all containers
-make docker-down  Stop all containers
-```
+
+Integration tests share one Postgres DB and coordinate via a single `reset()` helper — the `Makefile` wraps them in `--test-threads=1` so the truncate doesn't race.
+
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the bounded contexts, the `/v1/auth` hot-path flow, and the admin command model. [CLAUDE.md](CLAUDE.md) is the short, code-adjacent guide aimed at coding agents working in this repo.
