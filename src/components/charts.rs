@@ -1,9 +1,20 @@
 use crate::models::DashboardStats;
 use leptos::prelude::*;
+use wasm_bindgen::prelude::*;
+
+/// Typed bridge to the global `renderCharts(dataJson)` declared in
+/// `public/js/charts.js`. Previous incarnation smuggled data through
+/// `window.__chartData` + `js_sys::eval("setTimeout(...)")` — neither
+/// survives CSP tightening, and the eval path breaks the moment a
+/// key or subscription label contains a backtick.
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = renderCharts)]
+    fn render_charts_js(data_json: &str);
+}
 
 #[component]
 pub fn Charts(#[prop(into)] stats: Signal<Option<DashboardStats>>) -> impl IntoView {
-    // Render charts when stats update
     Effect::new(move || {
         if let Some(stats) = stats.get() {
             render_charts(&stats);
@@ -35,8 +46,6 @@ pub fn Charts(#[prop(into)] stats: Signal<Option<DashboardStats>>) -> impl IntoV
 }
 
 fn render_charts(stats: &DashboardStats) {
-    use wasm_bindgen::JsValue;
-
     let sub_labels: Vec<String> = stats
         .subscription_distribution
         .iter()
@@ -66,16 +75,6 @@ fn render_charts(stats: &DashboardStats) {
     });
 
     if let Ok(json_str) = serde_json::to_string(&data) {
-        let window = web_sys::window().unwrap();
-        let _ = js_sys::Reflect::set(
-            &window,
-            &JsValue::from_str("__chartData"),
-            &JsValue::from_str(&json_str),
-        );
-
-        // Defer render so canvas elements are mounted in the DOM first
-        let _ = js_sys::eval(
-            "setTimeout(function(){ if(typeof renderCharts === 'function') renderCharts(); }, 0)",
-        );
+        render_charts_js(&json_str);
     }
 }

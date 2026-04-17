@@ -1,3 +1,11 @@
+// Dashboard chart renderer. The Rust side calls the exported
+// `renderCharts(dataJson)` global via a typed `#[wasm_bindgen]` extern
+// — no `eval`, no `window.__chartData` smuggling.
+//
+// The argument is a JSON *string* so the wasm → JS crossing stays a
+// single primitive value. The body defers via setTimeout so canvas
+// elements are live in the DOM before Chart.js probes them.
+
 let subscriptionChart = null;
 let rateLimitChart = null;
 let trendChart = null;
@@ -7,12 +15,20 @@ const CHART_COLORS = [
     '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'
 ];
 
-function renderCharts() {
-    const raw = window.__chartData;
-    if (!raw) return;
+function renderCharts(dataJson) {
+    setTimeout(function() {
+        if (typeof dataJson !== 'string' || dataJson.length === 0) return;
+        let data;
+        try {
+            data = JSON.parse(dataJson);
+        } catch (_) {
+            return;
+        }
+        renderChartsImpl(data);
+    }, 0);
+}
 
-    const data = JSON.parse(raw);
-
+function renderChartsImpl(data) {
     // Subscription Pie Chart
     const subCtx = document.getElementById('subscription-chart');
     if (subCtx) {
