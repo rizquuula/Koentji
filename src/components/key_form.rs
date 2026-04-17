@@ -1,4 +1,5 @@
 use crate::components::design::{Button, ButtonType, ButtonVariant, Input, Stack};
+use crate::components::toast::use_toast;
 use crate::models::{AuthenticationKey, CreateKeyRequest, UpdateKeyRequest};
 use crate::server::subscription_service::list_subscription_types;
 use leptos::prelude::*;
@@ -46,6 +47,7 @@ pub fn KeyForm(
             .unwrap_or_default(),
     );
     let submitting = RwSignal::new(false);
+    let toast = use_toast();
 
     let editing_id = key.as_ref().map(|k| k.id);
 
@@ -108,8 +110,13 @@ pub fn KeyForm(
             };
 
             submitting.set(false);
-            if result.is_ok() {
-                on_submit.run(());
+            match result {
+                Ok(()) => on_submit.run(()),
+                Err(err) => toast.error(&format!(
+                    "Failed to {} key: {}",
+                    if is_editing { "update" } else { "create" },
+                    err
+                )),
             }
         });
     };
