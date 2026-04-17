@@ -147,7 +147,20 @@ async fn main() -> std::io::Result<()> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(4);
 
-    HttpServer::new(move || {
+    // Graceful shutdown: `HttpServer::shutdown_timeout(30)` gives
+    // in-flight requests up to 30s to drain after SIGTERM before
+    // connections are force-closed. Configurable via
+    // `SHUTDOWN_TIMEOUT_SECONDS` for operators whose longest request
+    // (e.g. a slow report) exceeds 30s. `run()` already traps
+    // SIGTERM/SIGINT on unix; we keep a clone of the pool outside the
+    // factory closure so it can be closed cleanly after drain.
+    let shutdown_timeout_secs: u64 = std::env::var("SHUTDOWN_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(30);
+    let shutdown_pool = pool.clone();
+
+    let server = HttpServer::new(move || {
         let routes = generate_route_list(App);
         let leptos_options = &conf.leptos_options;
         let site_root = leptos_options.site_root.clone().to_string();
@@ -230,9 +243,15 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(leptos_options.to_owned()))
     })
     .workers(workers)
+    .shutdown_timeout(shutdown_timeout_secs)
     .bind(&addr)?
-    .run()
-    .await
+    .run();
+
+    let outcome = server.await;
+    log::info!("HTTP server stopped; closing Postgres pool…");
+    shutdown_pool.close().await;
+    log::info!("Postgres pool closed; shutdown complete.");
+    outcome
 }
 
 #[cfg(feature = "ssr")]
