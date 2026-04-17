@@ -2,8 +2,8 @@
 
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
-- Current phase: 1
-- Next commit: 1.8
+- Current phase: 2
+- Next commit: 2.1
 
 ## Checklist
 
@@ -22,7 +22,7 @@
 - [x] 1.5  tec: hide Moka auth cache behind AuthCachePort
 - [x] 1.6  feat: route /v1/auth through AuthenticateApiKey use case
 - [x] 1.7  test: cover IssuedKey.authorize across all denial reasons
-- [ ] 1.8  test: integration tests for Postgres IssuedKeyRepository
+- [x] 1.8  test: integration tests for Postgres IssuedKeyRepository
 
 ### Phase 2 — admin verbs
 - [ ] 2.1  feat: issuing a key emits KeyIssued and returns an IssuedKey
@@ -86,6 +86,7 @@
 - 1.5  2026-04-17 — new `src/domain/authentication/auth_cache_port.rs` (`AuthCachePort` with `get`/`put`/`invalidate` over `(AuthKey, DeviceId)`). New `src/infrastructure/cache/moka_auth_cache.rs` adapts Moka to the port and stores the full `IssuedKey` aggregate rather than the legacy DB row. Legacy `src/cache.rs` stays until 1.6 swaps the endpoint.
 - 1.6  2026-04-17 — `/v1/auth` now flows through `koentji::application::AuthenticateApiKey` (new) → `koentji::interface::http::auth_endpoint` (new). `src/main.rs` shrinks from 634 lines to ~188 (wiring only). The handler is non-generic and takes `Arc<AuthenticateApiKey>`; the use case holds `Arc<dyn IssuedKeyRepository>` + `Arc<dyn AuthCachePort>` so the actix `#[post]` macro doesn't fight type parameters. `IssuedKey` gains `username`/`email` (envelope echoes them). `claim_free_trial` ported onto the repository adapter preserving the two-branch INSERT/rebind upsert + 1st-of-next-month UTC calendar math. Envelope byte-identical: `DenialEnvelope::from_reason` + `status_code` renders the same `{ error: { en, id }, message }` as before. Legacy `src/cache.rs` and `src/server/key_service.rs` unchanged (Phase 2 migrates them). 39 unit + 3 harness + 6 rate_limit + 6 stats tests all green.
 - 1.7  2026-04-17 — +24 `IssuedKey.authorize` tests covering: priority-of-denial (revoked beats expired beats rate-limit, free-trial-ended vs rate-limit), clock boundaries (==expiry denies, nanosecond before allows; window reset fires at `==` boundary, not one ns early), ledger arithmetic edge cases (remaining==usage+1 allowed, usage==daily denied, `usage==0` is allowed without decrement), non-default window (60s window resets after 61s), purity (authorize does not mutate), `updated_at` stamping, denial timestamp round-trip (revoked/expired/free-trial), and lifecycle verb interactions (reassign/reset don't unrevoke; extend_until revives an expired key; None expiry is endless). 36 authorize-focused tests in total (>30 plan target). 78 tests across 6 suites all green.
+- 1.8  2026-04-17 — new `tests/postgres_issued_key_repository.rs` (12 tests) exercises the real DB adapter: `find` hydrates identity + ledger + username/email and returns revoked rows (they are not treated as missing), default window falls back to 86_400s. `consume_quota` allows within quota, refuses at the legacy off-by-one, resets a stale window, never oversells under 20 concurrent spawns (exactly 19 Allowed, final remaining=1). `claim_free_trial` inserts on marker match, rebinds a pre-issued `device_id='-'` row (final count=1), returns None for a plain unknown key. Every test first calls `fresh_pool()` → `reset` so cross-pollution is impossible. 90 rust tests across 7 suites + 77 Playwright tests all green — Phase 1 boundary verified.
 
 ## Blockers
 
