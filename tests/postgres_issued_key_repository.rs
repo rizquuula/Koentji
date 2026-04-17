@@ -12,6 +12,9 @@
 //! - `claim_free_trial` inserts on the FREE_TRIAL marker.
 //! - `claim_free_trial` rebinds a pre-issued `device_id = '-'` row.
 //! - `claim_free_trial` returns `None` for a plain unknown key.
+//! - Admin verbs: `issue_key`, `revoke_key`, `reassign_device`,
+//!   `reset_rate_limit`, `extend_expiration` — each on the happy path,
+//!   the unknown-id branch, and (where relevant) the idempotent branch.
 
 #![cfg(feature = "ssr")]
 
@@ -19,7 +22,8 @@ mod common;
 
 use chrono::{DateTime, Duration, Utc};
 use koentji::domain::authentication::{
-    AuthKey, ConsumeOutcome, DeviceId, FreeTrialConfig, IssuedKeyRepository, RateLimitUsage,
+    AuthKey, ConsumeOutcome, DeviceId, FreeTrialConfig, IssueKeyCommand, IssuedKeyId,
+    IssuedKeyRepository, RateLimitAmount, RateLimitUsage, SubscriptionName,
 };
 use koentji::infrastructure::postgres::PostgresIssuedKeyRepository;
 use std::sync::Arc;
@@ -365,5 +369,304 @@ async fn claim_free_trial_returns_none_for_an_unknown_non_marker_key() {
         .await
         .expect("claim must not error");
 
+    assert!(out.is_none());
+}
+
+// ---- Admin verbs (Phase 2.1–2.3) ------------------------------------------
+
+fn issue_command(key: &str, device_s: &str, daily: i32) -> IssueKeyCommand {
+    IssueKeyCommand {
+        key: auth_key(key),
+        device: device(device_s),
+        subscription: Some(SubscriptionName::parse("free".to_string()).unwrap()),
+        subscription_type_id: None,
+        rate_limit_daily: RateLimitAmount::new(daily).expect("positive daily"),
+        rate_limit_interval_id: None,
+        username: Some("ada".to_string()),
+        email: Some("ada@example.com".to_string()),
+        expired_at: None,
+        issued_by: "test-admin".to_string(),
+    }
+}
+
+#[tokio::test]
+async fn issue_key_inserts_and_returns_aggregate() {
+    let pool = fresh_pool().await;
+    let r = repo(pool.clone());
+
+    let issued = r
+        .issue_key(issue_command("klab_issued_1", "dev-issued-1", 100))
+        .await
+        .expect("issue must not error");
+
+    assert_eq!(issued.key.as_str(), "klab_issued_1");
+    assert_eq!(issued.device_id.as_str(), "dev-issued-1");
+    assert_eq!(issued.rate_limit.daily.value(), 100);
+    assert_eq!(issued.username.as_deref(), Some("ada"));
+    assert_eq!(issued.email.as_deref(), Some("ada@example.com"));
+    assert!(issued.revoked_at.is_none());
+    assert_eq!(
+        issued.subscription.as_ref().map(|s| s.as_str()),
+        Some("free")
+    );
+}
+
+#[tokio::test]
+async fn issue_key_defaults_remaining_to_daily() {
+    let pool = fresh_pool().await;
+    let r = repo(pool.clone());
+
+    let issued = r
+        .issue_key(issue_command("klab_issued_remaining", "dev-remaining", 250))
+        .await
+        .expect("issue must not error");
+
+    // Freshly issued rows start the window with full quota.
+    assert_eq!(issued.rate_limit.remaining.value(), 250);
+    assert_eq!(issued.rate_limit.daily.value(), 250);
+}
+
+#[tokio::test]
+async fn revoke_key_soft_deletes_and_returns_key_device() {
+    let pool = fresh_pool().await;
+    let inserted = a_key()
+        .with_key("klab_revoke_me")
+        .with_device("dev-revoke-me")
+        .insert(&pool)
+        .await;
+
+    let r = repo(pool.clone());
+    let out = r
+        .revoke_key(IssuedKeyId::new(inserted.id), "test-admin")
+        .await
+        .expect("revoke must not error")
+        .expect("row matched");
+
+    assert_eq!(out.0.as_str(), "klab_revoke_me");
+    assert_eq!(out.1.as_str(), "dev-revoke-me");
+
+    let snap = r
+        .find(&auth_key("klab_revoke_me"), &device("dev-revoke-me"))
+        .await
+        .expect("find must not error")
+        .expect("row exists (soft-deleted)");
+    assert!(snap.revoked_at.is_some());
+}
+
+#[tokio::test]
+async fn revoke_key_is_idempotent_and_preserves_original_timestamp() {
+    // Calling revoke twice must not bump `deleted_at` — a second admin
+    // click during a slow network round-trip shouldn't rewrite history.
+    let pool = fresh_pool().await;
+    let inserted = a_key()
+        .with_key("klab_idempotent")
+        .with_device("dev-idempotent")
+        .insert(&pool)
+        .await;
+
+    let r = repo(pool.clone());
+
+    r.revoke_key(IssuedKeyId::new(inserted.id), "admin-1")
+        .await
+        .expect("first revoke")
+        .expect("row matched");
+    let first_deleted_at: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT deleted_at FROM authentication_keys WHERE id = $1")
+            .bind(inserted.id)
+            .fetch_one(&pool)
+            .await
+            .expect("snapshot first timestamp");
+    let first = first_deleted_at.expect("first revoke stamped deleted_at");
+
+    // Second call still returns Some — the caller can re-evict its cache.
+    let out = r
+        .revoke_key(IssuedKeyId::new(inserted.id), "admin-2")
+        .await
+        .expect("second revoke")
+        .expect("row still matches");
+    assert_eq!(out.0.as_str(), "klab_idempotent");
+
+    let second_deleted_at: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT deleted_at FROM authentication_keys WHERE id = $1")
+            .bind(inserted.id)
+            .fetch_one(&pool)
+            .await
+            .expect("snapshot second timestamp");
+    assert_eq!(
+        second_deleted_at.expect("still revoked"),
+        first,
+        "deleted_at must be preserved across idempotent revokes",
+    );
+}
+
+#[tokio::test]
+async fn revoke_key_returns_none_for_an_unknown_id() {
+    let pool = fresh_pool().await;
+    let r = repo(pool.clone());
+
+    let out = r
+        .revoke_key(IssuedKeyId::new(9_999_999), "test-admin")
+        .await
+        .expect("revoke must not error");
+    assert!(out.is_none());
+}
+
+#[tokio::test]
+async fn reassign_device_returns_previous_and_current_devices() {
+    let pool = fresh_pool().await;
+    let inserted = a_key()
+        .with_key("klab_reassign")
+        .with_device("dev-before")
+        .insert(&pool)
+        .await;
+
+    let r = repo(pool.clone());
+    let out = r
+        .reassign_device(
+            IssuedKeyId::new(inserted.id),
+            &device("dev-after"),
+            "test-admin",
+        )
+        .await
+        .expect("reassign must not error")
+        .expect("row matched");
+
+    assert_eq!(out.key.as_str(), "klab_reassign");
+    assert_eq!(out.previous_device.as_str(), "dev-before");
+    assert_eq!(out.current_device.as_str(), "dev-after");
+
+    // The moved row really did move.
+    let (device_row,): (String,) =
+        sqlx::query_as("SELECT device_id FROM authentication_keys WHERE id = $1")
+            .bind(inserted.id)
+            .fetch_one(&pool)
+            .await
+            .expect("row exists");
+    assert_eq!(device_row, "dev-after");
+}
+
+#[tokio::test]
+async fn reassign_device_returns_none_for_an_unknown_id() {
+    let pool = fresh_pool().await;
+    let r = repo(pool.clone());
+
+    let out = r
+        .reassign_device(
+            IssuedKeyId::new(9_999_999),
+            &device("dev-ghost"),
+            "test-admin",
+        )
+        .await
+        .expect("reassign must not error");
+    assert!(out.is_none());
+}
+
+#[tokio::test]
+async fn reset_rate_limit_restores_daily_and_stamps_updated_at() {
+    let pool = fresh_pool().await;
+    let inserted = a_key()
+        .with_key("klab_reset")
+        .with_device("dev-reset-admin")
+        .with_rate_limit(500)
+        .with_remaining(3)
+        .insert(&pool)
+        .await;
+
+    let r = repo(pool.clone());
+    let reset_at = now();
+    let out = r
+        .reset_rate_limit(IssuedKeyId::new(inserted.id), reset_at, "test-admin")
+        .await
+        .expect("reset must not error")
+        .expect("row matched");
+
+    assert_eq!(out.0.as_str(), "klab_reset");
+    assert_eq!(out.1.as_str(), "dev-reset-admin");
+
+    let (remaining, updated_at): (i32, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT rate_limit_remaining, rate_limit_updated_at FROM authentication_keys WHERE id = $1",
+    )
+    .bind(inserted.id)
+    .fetch_one(&pool)
+    .await
+    .expect("row exists");
+    assert_eq!(remaining, 500);
+    let stamped = updated_at.expect("updated_at stamped");
+    assert!(
+        (stamped - reset_at).num_seconds().abs() < 2,
+        "updated_at should be close to the reset moment",
+    );
+}
+
+#[tokio::test]
+async fn reset_rate_limit_returns_none_for_an_unknown_id() {
+    let pool = fresh_pool().await;
+    let r = repo(pool.clone());
+
+    let out = r
+        .reset_rate_limit(IssuedKeyId::new(9_999_999), now(), "test-admin")
+        .await
+        .expect("reset must not error");
+    assert!(out.is_none());
+}
+
+#[tokio::test]
+async fn extend_expiration_sets_and_clears_expiry() {
+    let pool = fresh_pool().await;
+    let inserted = a_key()
+        .with_key("klab_extend")
+        .with_device("dev-extend")
+        .insert(&pool)
+        .await;
+
+    let r = repo(pool.clone());
+    let new_expiry = Utc::now() + Duration::days(30);
+
+    let out = r
+        .extend_expiration(
+            IssuedKeyId::new(inserted.id),
+            Some(new_expiry),
+            "test-admin",
+        )
+        .await
+        .expect("extend must not error")
+        .expect("row matched");
+    assert_eq!(out.0.as_str(), "klab_extend");
+
+    let (expired_at,): (Option<DateTime<Utc>>,) =
+        sqlx::query_as("SELECT expired_at FROM authentication_keys WHERE id = $1")
+            .bind(inserted.id)
+            .fetch_one(&pool)
+            .await
+            .expect("row exists");
+    let set = expired_at.expect("expired_at is now set");
+    assert!(
+        (set - new_expiry).num_seconds().abs() < 2,
+        "expired_at should match the requested value",
+    );
+
+    // Clearing with None should null it back out.
+    r.extend_expiration(IssuedKeyId::new(inserted.id), None, "test-admin")
+        .await
+        .expect("clear must not error")
+        .expect("row matched");
+    let (cleared,): (Option<DateTime<Utc>>,) =
+        sqlx::query_as("SELECT expired_at FROM authentication_keys WHERE id = $1")
+            .bind(inserted.id)
+            .fetch_one(&pool)
+            .await
+            .expect("row exists");
+    assert!(cleared.is_none(), "clearing expiry should null the column");
+}
+
+#[tokio::test]
+async fn extend_expiration_returns_none_for_an_unknown_id() {
+    let pool = fresh_pool().await;
+    let r = repo(pool.clone());
+
+    let out = r
+        .extend_expiration(IssuedKeyId::new(9_999_999), Some(Utc::now()), "test-admin")
+        .await
+        .expect("extend must not error");
     assert!(out.is_none());
 }

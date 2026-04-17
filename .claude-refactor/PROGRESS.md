@@ -2,8 +2,8 @@
 
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
-- Current phase: 2
-- Next commit: 2.5
+- Current phase: 3
+- Next commit: 3.1
 
 ## Checklist
 
@@ -29,7 +29,7 @@
 - [x] 2.2  feat: revoking a key emits KeyRevoked and invalidates auth cache
 - [x] 2.3  feat: reassigning a device / resetting rate limit / extending expiration as domain commands
 - [x] 2.4  fix: device reassignment also evicts the prior auth-cache entry
-- [ ] 2.5  test: cover key-management commands
+- [x] 2.5  test: cover key-management commands
 
 ### Phase 3 — schema hardening
 - [ ] 3.1  feat: enforce UNIQUE(key, device_id)
@@ -91,6 +91,7 @@
 - 2.2  2026-04-17 — new `src/application/revoke_key.rs` (`RevokeKey` use case) + `revoke_key` on the repository port and Postgres adapter. The SQL is idempotent — `COALESCE(deleted_at, NOW())` keeps the original revocation timestamp if the row is already revoked, while `RETURNING key, device_id` lets the use case evict the cache without a second round-trip. `RevokeKey::execute` composes the repo call with `AuthCachePort::invalidate`, so the `delete_key` server fn shrinks to parse id → delegate. `main.rs` wires `Arc<RevokeKey>` sharing the *same* `auth_cache_port` as `AuthenticateApiKey` so admin evictions actually land on the hot-path cache. Legacy `GLOBAL_AUTH_CACHE` OnceLock still serves `update_key` + `reset_rate_limit` — 2.3 migrates those next. 90 rust tests still green; `KeyRevoked` log line emitted.
 - 2.3  2026-04-17 — three new admin verbs on the port + adapter + application layer: `ReassignDevice` (CTE-based UPDATE snapshots the previous `device_id` in the same statement so the use case can evict *both* `(key, prev_dev)` and `(key, new_dev)` — this is what 2.4 will wire into `update_key`), `ResetRateLimit` (UPDATE + cache evict; `reset_rate_limit` server fn now delegates), `ExtendExpiration` (UPDATE expired_at + cache evict). New domain struct `DeviceReassignment { key, previous_device, current_device }` is exported from `domain::authentication`. `main.rs` wires all three as app_data sharing the same `Arc<dyn AuthCachePort>`. Past-tense log lines emitted (`DeviceReassigned`, `RateLimitReset`, `KeyExpirationExtended`). `update_key` still uses the legacy blob UPDATE + `GLOBAL_AUTH_CACHE` helper — 2.4 cuts that over to `ReassignDevice` (which fixes B9: the old cache entry is now evicted too). 90 rust tests still green.
 - 2.4  2026-04-17 — `update_key` server fn now snapshots the pre-UPDATE `(key, device_id)` and evicts that entry via `Arc<dyn AuthCachePort>` (injected as `web::Data`), not the legacy `GLOBAL_AUTH_CACHE` OnceLock. When the device was reassigned, the new `(key, new_device)` entry is also evicted so a concurrent read doesn't leave stale hot-path state. Fixes B9 — legacy helper looked up the CURRENT `device_id` after the UPDATE, so the prior entry stayed cached. `GLOBAL_AUTH_CACHE`, `set_global_auth_cache`, `invalidate_cache_for_key`, and the now-orphan `src/cache.rs` module are removed; `main.rs` drops the `legacy_auth_cache` + `set_global_auth_cache` wiring. Only surviving auth cache is the port + Moka adapter. 90 rust tests still green.
+- 2.5  2026-04-17 — +11 adapter integration tests in `tests/postgres_issued_key_repository.rs` covering all five admin verbs (`issue_key` happy-path + remaining=daily, `revoke_key` happy/idempotent-timestamp-preserved/unknown-id, `reassign_device` returns prev+curr/unknown-id, `reset_rate_limit` restores+stamps/unknown-id, `extend_expiration` set+clear/unknown-id). New `tests/key_management_use_cases.rs` (9 tests) uses in-memory `FakeRepo`/`FakeCache` to pin use-case orchestration: every state-mutating verb evicts the cache on success; `ReassignDevice` evicts BOTH `(key, prev_dev)` and `(key, new_dev)` (B9 guard); unknown ids short-circuit without touching the cache; `IssueKey` never touches the cache at all. Also fixes a pre-existing harness flake: added `--test-threads=1` to `make test` — integration tests share one Postgres DB and coordinate via `reset()`, so parallel TRUNCATEs were stomping on the in-flight concurrency test. 110 rust tests across 8 suites all green.
 
 ## Blockers
 

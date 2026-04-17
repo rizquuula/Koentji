@@ -51,7 +51,12 @@ clippy: ## Run clippy lints (all features, deny warnings)
 	cargo clippy --all-features --tests -- -D warnings
 
 test: ## Run Rust tests with ssr feature enabled
-	cargo test --features ssr
+	# Integration tests share one Postgres DB and coordinate via
+	# `reset()` — running them in parallel lets a TRUNCATE wipe another
+	# test's rows mid-flight, which in turn flakes the concurrency
+	# tests. `--test-threads=1` serialises within each test binary;
+	# cargo still runs separate binaries sequentially.
+	cargo test --features ssr -- --test-threads=1
 
 check: fmt-check clippy test ## fmt --check + clippy -D warnings + cargo test (safety gate)
 
