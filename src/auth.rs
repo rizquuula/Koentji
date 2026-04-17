@@ -2,11 +2,33 @@ use leptos::prelude::*;
 
 #[server]
 pub async fn login(username: String, password: String) -> Result<bool, ServerFnError> {
-    use crate::domain::admin_access::equals_in_constant_time;
+    use crate::domain::admin_access::{
+        equals_in_constant_time, AttemptDecision, LoginAttemptLedger,
+    };
     use actix_session::Session;
+    use actix_web::{web, HttpRequest};
     use leptos_actix::extract;
+    use std::sync::Arc;
 
     let admin_username = std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string());
+
+    // Per-IP sliding-window lockout. If the ledger isn't wired (tests,
+    // plain `leptos build`), we skip the check — production always has
+    // one via `main.rs`.
+    let ledger: Option<web::Data<Arc<LoginAttemptLedger>>> = extract().await.ok();
+    let req = extract::<HttpRequest>().await?;
+    let client_ip = peer_ip_from_request(&req);
+    let now = chrono::Utc::now();
+
+    if let Some(ledger) = ledger.as_ref() {
+        if let AttemptDecision::LockedOut { retry_after } = ledger.check(&client_ip, now) {
+            log::warn!(
+                "Admin login rejected: ip={client_ip} is locked out for {}s",
+                retry_after.num_seconds()
+            );
+            return Ok(false);
+        }
+    }
 
     // Password precedence: prefer the argon2id PHC hash
     // (`ADMIN_PASSWORD_HASH`) and fall back to plaintext
@@ -26,6 +48,9 @@ pub async fn login(username: String, password: String) -> Result<bool, ServerFnE
     let pw_ok = creds.verify(&password);
 
     if user_ok & pw_ok {
+        if let Some(ledger) = ledger.as_ref() {
+            ledger.clear(&client_ip);
+        }
         let session = extract::<Session>().await?;
         session
             .insert("username", &username)
@@ -33,9 +58,33 @@ pub async fn login(username: String, password: String) -> Result<bool, ServerFnE
         log::info!("Admin login success: username={username}");
         Ok(true)
     } else {
-        log::warn!("Admin login failed: username={username}");
+        if let Some(ledger) = ledger.as_ref() {
+            if let AttemptDecision::LockedOut { retry_after } =
+                ledger.record_failure(&client_ip, now)
+            {
+                log::warn!(
+                    "Admin login failed and locked out: ip={client_ip} retry_after={}s",
+                    retry_after.num_seconds()
+                );
+                return Ok(false);
+            }
+        }
+        log::warn!("Admin login failed: username={username} ip={client_ip}");
         Ok(false)
     }
+}
+
+#[cfg(feature = "ssr")]
+fn peer_ip_from_request(req: &actix_web::HttpRequest) -> String {
+    // `realip_remote_addr` consults X-Forwarded-For / Forwarded first,
+    // falling back to the socket peer — good enough for a
+    // single-replica admin dashboard behind a trusted reverse proxy.
+    // If we ever run without a proxy we can tighten this to
+    // `peer_addr` only.
+    req.connection_info()
+        .realip_remote_addr()
+        .map(str::to_owned)
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 #[cfg(feature = "ssr")]

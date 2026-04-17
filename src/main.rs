@@ -50,6 +50,7 @@ async fn main() -> std::io::Result<()> {
     use koentji::application::{
         AuthenticateApiKey, ExtendExpiration, IssueKey, ReassignDevice, ResetRateLimit, RevokeKey,
     };
+    use koentji::domain::admin_access::{LockoutPolicy, LoginAttemptLedger};
     use koentji::domain::authentication::FreeTrialConfig;
     use koentji::infrastructure::cache::MokaAuthCache;
     use koentji::infrastructure::postgres::{
@@ -108,6 +109,8 @@ async fn main() -> std::io::Result<()> {
         audit_port.clone(),
     ));
 
+    let login_ledger = std::sync::Arc::new(LoginAttemptLedger::new(LockoutPolicy::default_admin()));
+
     let secret_key = std::env::var("SECRET_KEY").unwrap_or_else(|_| {
         log::warn!("SECRET_KEY not set, using insecure default — set SECRET_KEY in production");
         "a-very-secret-key-that-should-be-at-least-64-bytes-long-for-security-purposes-change-me"
@@ -137,6 +140,7 @@ async fn main() -> std::io::Result<()> {
         let reset_rate_limit = reset_rate_limit.clone();
         let extend_expiration = extend_expiration.clone();
         let cache_port_data = auth_cache_port.clone();
+        let login_ledger = login_ledger.clone();
 
         actix_web::App::new()
             .app_data(web::Data::new(auth_handler))
@@ -146,6 +150,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(reset_rate_limit))
             .app_data(web::Data::new(extend_expiration))
             .app_data(web::Data::new(cache_port_data))
+            .app_data(web::Data::new(login_ledger))
             .service(auth_endpoint)
             .service(
                 web::resource("/docs").route(web::get().to(|| async {
