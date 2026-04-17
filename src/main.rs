@@ -7,6 +7,8 @@ use utoipa::OpenApi;
 use koentji::interface::http::auth_endpoint::{
     auth_endpoint, AuthError, AuthRequest, AuthResponse, AuthResponseData,
 };
+#[cfg(feature = "ssr")]
+use koentji::interface::http::health::{healthz, readyz};
 
 #[cfg(feature = "ssr")]
 #[derive(OpenApi)]
@@ -169,6 +171,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(cache_port_data))
             .app_data(web::Data::new(login_ledger))
             .service(auth_endpoint)
+            .service(healthz)
+            .service(readyz)
             .service(
                 web::resource("/docs").route(web::get().to(|| async {
                     actix_web::HttpResponse::PermanentRedirect()
