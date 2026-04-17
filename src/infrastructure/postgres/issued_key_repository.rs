@@ -26,7 +26,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
 use crate::domain::authentication::{
-    AuthKey, ConsumeOutcome, DeviceId, FreeTrialConfig, IssuedKey, IssuedKeyId,
+    AuthKey, ConsumeOutcome, DeviceId, FreeTrialConfig, IssueKeyCommand, IssuedKey, IssuedKeyId,
     IssuedKeyRepository, RateLimitAmount, RateLimitLedger, RateLimitUsage, RateLimitWindow,
     RepositoryError, SubscriptionName,
 };
@@ -245,6 +245,53 @@ impl IssuedKeyRepository for PostgresIssuedKeyRepository {
         }
 
         Ok(None)
+    }
+
+    async fn issue_key(&self, command: IssueKeyCommand) -> Result<IssuedKey, RepositoryError> {
+        let backend = |e: sqlx::Error| RepositoryError::Backend(e.to_string());
+
+        let subscription_name = command
+            .subscription
+            .as_ref()
+            .map(|s| s.as_str().to_string());
+        let daily = command.rate_limit_daily.value();
+
+        let (id,): (i32,) = sqlx::query_as(
+            r#"INSERT INTO authentication_keys
+                (key, device_id, subscription, subscription_type_id, rate_limit_daily,
+                 rate_limit_remaining, rate_limit_interval_id, username, email,
+                 expired_at, created_by)
+               VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10)
+               RETURNING id"#,
+        )
+        .bind(command.key.as_str())
+        .bind(command.device.as_str())
+        .bind(&subscription_name)
+        .bind(command.subscription_type_id)
+        .bind(daily)
+        .bind(command.rate_limit_interval_id)
+        .bind(&command.username)
+        .bind(&command.email)
+        .bind(command.expired_at)
+        .bind(&command.issued_by)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(backend)?;
+
+        log::info!(
+            "Key issued: id={}, device={}, issued_by={}",
+            id,
+            command.device.as_str(),
+            command.issued_by
+        );
+
+        self.find(&command.key, &command.device)
+            .await
+            .and_then(|o| {
+                o.ok_or_else(|| {
+                    RepositoryError::Backend(format!("inserted key id={} vanished", id))
+                })
+            })
     }
 }
 

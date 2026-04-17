@@ -91,10 +91,17 @@ pub async fn list_keys(
 pub async fn create_key(req: CreateKeyRequest) -> Result<AuthenticationKey, ServerFnError> {
     use leptos_actix::extract;
     use sqlx::PgPool;
+    use std::sync::Arc;
+
+    use crate::application::IssueKey;
+    use crate::domain::authentication::{
+        AuthKey, DeviceId, IssueKeyCommand, RateLimitAmount, SubscriptionName,
+    };
 
     let pool = extract::<actix_web::web::Data<PgPool>>().await?;
+    let issue_key = extract::<actix_web::web::Data<Arc<IssueKey>>>().await?;
 
-    let key = generate_api_key();
+    let key_string = generate_api_key();
 
     // Look up subscription type to get defaults
     let (rate_limit, subscription_name, rate_limit_interval_id) =
@@ -137,33 +144,45 @@ pub async fn create_key(req: CreateKeyRequest) -> Result<AuthenticationKey, Serv
         }
     });
 
-    let created = sqlx::query_as::<_, AuthenticationKey>(
-        r#"INSERT INTO authentication_keys (key, device_id, subscription, subscription_type_id, rate_limit_daily, rate_limit_remaining, rate_limit_interval_id, username, email, expired_at, created_by)
-           VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10)
-           RETURNING *"#,
-    )
-    .bind(&key)
-    .bind(&req.device_id)
-    .bind(&subscription_name)
-    .bind(req.subscription_type_id)
-    .bind(rate_limit)
-    .bind(rate_limit_interval_id)
-    .bind(&req.username)
-    .bind(&req.email)
-    .bind(expired_at)
-    .bind("admin")
-    .fetch_one(pool.get_ref())
-    .await
-    .map_err(|e| {
-        log::error!("Failed to create key: {}", e);
+    let key = AuthKey::parse(&key_string).map_err(|e| ServerFnError::new(e.to_string()))?;
+    let device = DeviceId::parse(&req.device_id).map_err(|e| ServerFnError::new(e.to_string()))?;
+    let subscription = match subscription_name.as_deref() {
+        Some(s) if !s.is_empty() => {
+            Some(SubscriptionName::parse(s).map_err(|e| ServerFnError::new(e.to_string()))?)
+        }
+        _ => None,
+    };
+    let rate_limit_daily =
+        RateLimitAmount::new(rate_limit).map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    let command = IssueKeyCommand {
+        key,
+        device,
+        subscription,
+        subscription_type_id: req.subscription_type_id,
+        rate_limit_daily,
+        rate_limit_interval_id,
+        username: req.username.clone(),
+        email: req.email.clone(),
+        expired_at,
+        issued_by: "admin".to_string(),
+    };
+
+    let issued = issue_key.execute(command).await.map_err(|e| {
+        log::error!("Failed to issue key: {}", e);
         ServerFnError::new(e.to_string())
     })?;
 
-    log::info!(
-        "Key created: id={}, device={}",
-        created.id,
-        created.device_id
-    );
+    // The server-fn contract still returns the full DB row (the frontend
+    // expects timestamps / audit fields). Re-fetch by id — the domain
+    // aggregate deliberately doesn't carry them.
+    let created =
+        sqlx::query_as::<_, AuthenticationKey>("SELECT * FROM authentication_keys WHERE id = $1")
+            .bind(issued.id.value())
+            .fetch_one(pool.get_ref())
+            .await
+            .map_err(|e| ServerFnError::new(e.to_string()))?;
+
     Ok(created)
 }
 

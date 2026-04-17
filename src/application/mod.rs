@@ -10,5 +10,7 @@
 #![cfg(feature = "ssr")]
 
 pub mod authenticate_api_key;
+pub mod issue_key;
 
 pub use authenticate_api_key::{AuthOutcome, AuthenticateApiKey};
+pub use issue_key::IssueKey;

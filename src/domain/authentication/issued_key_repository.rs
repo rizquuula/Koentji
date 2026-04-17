@@ -31,6 +31,24 @@ use super::auth_key::AuthKey;
 use super::device_id::DeviceId;
 use super::issued_key::IssuedKey;
 use super::rate_limit::{RateLimitAmount, RateLimitUsage};
+use super::subscription_name::SubscriptionName;
+
+/// Command describing an admin-initiated `IssueKey`. The use case
+/// constructs this from the HTTP request, the repository materialises
+/// it as a persisted aggregate.
+#[derive(Debug, Clone)]
+pub struct IssueKeyCommand {
+    pub key: AuthKey,
+    pub device: DeviceId,
+    pub subscription: Option<SubscriptionName>,
+    pub subscription_type_id: Option<i32>,
+    pub rate_limit_daily: RateLimitAmount,
+    pub rate_limit_interval_id: Option<i32>,
+    pub username: Option<String>,
+    pub email: Option<String>,
+    pub expired_at: Option<DateTime<Utc>>,
+    pub issued_by: String,
+}
 
 /// Outcome of an atomic quota consume. Mirrors the shape of
 /// [`super::auth_decision::AuthDecision`] but only covers the
@@ -126,4 +144,9 @@ pub trait IssuedKeyRepository: Send + Sync {
         device: &DeviceId,
         config: &FreeTrialConfig,
     ) -> Result<Option<IssuedKey>, RepositoryError>;
+
+    /// Admin command — persist a brand-new issued key and return the
+    /// resulting aggregate. `(key, device)` must be unique; a unique-
+    /// constraint violation surfaces as [`RepositoryError::Backend`].
+    async fn issue_key(&self, command: IssueKeyCommand) -> Result<IssuedKey, RepositoryError>;
 }

@@ -47,7 +47,7 @@ async fn main() -> std::io::Result<()> {
     use leptos_meta::MetaTags;
     use utoipa_swagger_ui::SwaggerUi;
 
-    use koentji::application::AuthenticateApiKey;
+    use koentji::application::{AuthenticateApiKey, IssueKey};
     use koentji::domain::authentication::FreeTrialConfig;
     use koentji::infrastructure::cache::MokaAuthCache;
     use koentji::infrastructure::postgres::PostgresIssuedKeyRepository;
@@ -79,10 +79,11 @@ async fn main() -> std::io::Result<()> {
     let auth_cache_port: std::sync::Arc<dyn koentji::domain::authentication::AuthCachePort> =
         std::sync::Arc::new(MokaAuthCache::new(cache_ttl));
     let auth_handler = std::sync::Arc::new(AuthenticateApiKey::new(
-        issued_key_repo,
+        issued_key_repo.clone(),
         auth_cache_port,
         free_trial,
     ));
+    let issue_key = std::sync::Arc::new(IssueKey::new(issued_key_repo.clone()));
 
     let secret_key = std::env::var("SECRET_KEY").unwrap_or_else(|_| {
         log::warn!("SECRET_KEY not set, using insecure default — set SECRET_KEY in production");
@@ -107,9 +108,11 @@ async fn main() -> std::io::Result<()> {
         let site_root = leptos_options.site_root.clone().to_string();
         let pool = pool.clone();
         let auth_handler = auth_handler.clone();
+        let issue_key = issue_key.clone();
 
         actix_web::App::new()
             .app_data(web::Data::new(auth_handler))
+            .app_data(web::Data::new(issue_key))
             .service(auth_endpoint)
             .service(
                 web::resource("/docs").route(web::get().to(|| async {
