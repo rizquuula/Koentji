@@ -11,6 +11,7 @@
 //! hesitate to click through legitimate actions. The adapter logs
 //! its own errors.
 
+#[cfg(feature = "ssr")]
 use super::events::DomainEvent;
 
 #[cfg(feature = "ssr")]

@@ -29,8 +29,11 @@ use chrono::{DateTime, Utc};
 
 use super::auth_key::AuthKey;
 use super::device_id::DeviceId;
+#[cfg(feature = "ssr")]
 use super::issued_key::IssuedKey;
-use super::rate_limit::{RateLimitAmount, RateLimitUsage};
+use super::rate_limit::RateLimitAmount;
+#[cfg(feature = "ssr")]
+use super::rate_limit::RateLimitUsage;
 use super::subscription_name::SubscriptionName;
 
 /// Command describing an admin-initiated `IssueKey`. The use case

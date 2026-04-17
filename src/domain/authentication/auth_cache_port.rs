@@ -22,8 +22,11 @@
 //! will be. `async-trait` is gated on `ssr` so WASM builds do not
 //! depend on it.
 
+#[cfg(feature = "ssr")]
 use super::auth_key::AuthKey;
+#[cfg(feature = "ssr")]
 use super::device_id::DeviceId;
+#[cfg(feature = "ssr")]
 use super::issued_key::IssuedKey;
 
 #[cfg(feature = "ssr")]
