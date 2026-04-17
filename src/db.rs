@@ -17,14 +17,54 @@ use sqlx::PgPool;
 pub async fn create_pool() -> PgPool {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
-    PgPoolOptions::new()
+    let redacted = redact_password(&database_url);
+
+    match PgPoolOptions::new()
         .max_connections(20)
         .acquire_timeout(Duration::from_secs(5))
         .idle_timeout(Duration::from_secs(600))
         .test_before_acquire(true)
         .connect(&database_url)
         .await
-        .expect("Failed to create database pool")
+    {
+        Ok(pool) => {
+            log::info!("Connected to Postgres at {}", redacted);
+            pool
+        }
+        Err(sqlx::Error::PoolTimedOut) => {
+            log::error!(
+                "Could not reach Postgres at {} within 5s. Is the database running? \
+                 Try `make docker-up-db`, or check DATABASE_URL (host/port/credentials) and firewall.",
+                redacted
+            );
+            panic!("Database unreachable: PoolTimedOut connecting to {}", redacted);
+        }
+        Err(e) => {
+            log::error!(
+                "Failed to create database pool for {}: {} ({:?})",
+                redacted,
+                e,
+                e
+            );
+            panic!("Failed to create database pool for {}: {}", redacted, e);
+        }
+    }
+}
+
+/// Strip the password out of a Postgres URL so it's safe to log.
+/// `postgres://user:secret@host/db` → `postgres://user:***@host/db`.
+fn redact_password(url: &str) -> String {
+    match (url.find("://"), url.find('@')) {
+        (Some(scheme_end), Some(at)) if scheme_end + 3 < at => {
+            let creds = &url[scheme_end + 3..at];
+            if let Some(colon) = creds.find(':') {
+                let user = &creds[..colon];
+                return format!("{}://{}:***{}", &url[..scheme_end], user, &url[at..]);
+            }
+            url.to_string()
+        }
+        _ => url.to_string(),
+    }
 }
 
 include!(concat!(env!("OUT_DIR"), "/migrations.rs"));
