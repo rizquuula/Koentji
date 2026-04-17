@@ -88,13 +88,12 @@ pub struct IssuedKey {
 impl IssuedKey {
     /// Pure decision: would a consume of `usage` succeed at `now`?
     ///
-    /// Invariant order matches the legacy handler so the HTTP envelope
-    /// does not change in Phase 1.6:
+    /// Invariant order:
     ///
     /// 1. revoked → `Denied(Revoked)`
     /// 2. expired (free-trial vs admin split) → `Denied(FreeTrialEnded | Expired)`
-    /// 3. rate limit — respect the window-reset branch, then the legacy
-    ///    off-by-one predicate (see `src/rate_limit.rs`).
+    /// 3. rate limit — respect the window-reset branch, then deny when
+    ///    `remaining < usage` (last slot is consumable; see `src/rate_limit.rs`).
     pub fn authorize(&self, usage: RateLimitUsage, now: DateTime<Utc>) -> AuthDecision {
         if let Some(at) = self.revoked_at {
             return AuthDecision::Denied {
@@ -113,17 +112,18 @@ impl IssuedKey {
             }
         }
 
-        // Legacy off-by-one: daily must be strictly greater than usage,
-        // and either the window has elapsed (reset branch) or the
-        // current remaining must also be strictly greater.
-        if self.rate_limit.daily.value() <= usage.value() {
+        // Deny when usage exceeds the daily cap, or when inside an
+        // active window the current remaining is less than usage. The
+        // last slot is consumable (remaining == usage → Allowed, new
+        // remaining = 0).
+        if self.rate_limit.daily.value() < usage.value() {
             return AuthDecision::Denied {
                 reason: DenialReason::RateLimitExceeded,
             };
         }
 
         let window_elapsed = self.rate_limit.window_has_elapsed(now);
-        if !window_elapsed && self.rate_limit.remaining.value() <= usage.value() {
+        if !window_elapsed && self.rate_limit.remaining.value() < usage.value() {
             return AuthDecision::Denied {
                 reason: DenialReason::RateLimitExceeded,
             };
@@ -248,16 +248,43 @@ mod tests {
     }
 
     #[test]
-    fn respects_the_legacy_off_by_one_when_remaining_equals_usage() {
+    fn allows_the_last_slot_when_remaining_equals_usage() {
         let k = active_key_with_quota(10, 1);
+        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        match d {
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
+            other => panic!("expected Allowed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn denies_when_remaining_is_strictly_less_than_usage() {
+        let k = active_key_with_quota(10, 1);
+        let d = k.authorize(RateLimitUsage::literal(2), clock());
+        matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
+    }
+
+    #[test]
+    fn denies_when_exhausted_with_remaining_zero() {
+        let k = active_key_with_quota(10, 0);
         let d = k.authorize(RateLimitUsage::literal(1), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
     }
 
     #[test]
-    fn rejects_usage_greater_than_or_equal_to_daily() {
+    fn allows_usage_equal_to_daily() {
         let k = active_key_with_quota(10, 10);
         let d = k.authorize(RateLimitUsage::literal(10), clock());
+        match d {
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
+            other => panic!("expected Allowed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn rejects_usage_greater_than_daily() {
+        let k = active_key_with_quota(10, 10);
+        let d = k.authorize(RateLimitUsage::literal(11), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
     }
 
@@ -407,19 +434,22 @@ mod tests {
     }
 
     #[test]
-    fn large_usage_equal_to_daily_is_denied() {
+    fn large_usage_equal_to_daily_is_allowed() {
         let k = active_key_with_quota(6_000, 6_000);
         let d = k.authorize(RateLimitUsage::literal(6_000), clock());
-        matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
+        match d {
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
+            other => panic!("expected Allowed, got {:?}", other),
+        }
     }
 
     #[test]
-    fn large_usage_just_under_daily_is_allowed_after_window_reset() {
+    fn large_usage_equal_to_daily_is_allowed_after_window_reset() {
         let mut k = active_key_with_quota(6_000, 0);
         k.rate_limit.last_updated_at = Some(clock() - Duration::days(2));
-        let d = k.authorize(RateLimitUsage::literal(5_999), clock());
+        let d = k.authorize(RateLimitUsage::literal(6_000), clock());
         match d {
-            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 1),
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
             other => panic!("expected Allowed, got {:?}", other),
         }
     }
@@ -567,23 +597,21 @@ mod tests {
     // --- Active-key happy path: full-quota consume after reset --------------
 
     #[test]
-    fn full_daily_consume_on_a_fresh_window_leaves_one_remaining() {
-        // Legacy off-by-one: `daily - 1` is the max consumable value per
-        // window.
+    fn full_daily_consume_on_a_fresh_window_drains_to_zero() {
         let mut k = active_key_with_quota(10, 0);
         k.rate_limit.last_updated_at = Some(clock() - Duration::days(2));
-        let d = k.authorize(RateLimitUsage::literal(9), clock());
+        let d = k.authorize(RateLimitUsage::literal(10), clock());
         match d {
-            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 1),
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
             other => panic!("expected Allowed, got {:?}", other),
         }
     }
 
     #[test]
-    fn daily_consume_on_a_fresh_window_is_still_denied_by_legacy_off_by_one() {
+    fn over_daily_consume_on_a_fresh_window_is_denied() {
         let mut k = active_key_with_quota(10, 0);
         k.rate_limit.last_updated_at = Some(clock() - Duration::days(2));
-        let d = k.authorize(RateLimitUsage::literal(10), clock());
+        let d = k.authorize(RateLimitUsage::literal(11), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
     }
 }

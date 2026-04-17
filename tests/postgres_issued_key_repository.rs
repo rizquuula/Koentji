@@ -170,12 +170,13 @@ async fn consume_quota_allows_and_decrements_within_quota() {
 }
 
 #[tokio::test]
-async fn consume_quota_denies_at_the_legacy_off_by_one_boundary() {
-    // remaining == usage is denied — legacy `>` not `>=`.
+async fn consume_quota_allows_exactly_at_the_boundary() {
+    // remaining == usage is Allowed — predicate is `>=`. The last slot
+    // drains to exactly 0, and the next consume is refused.
     let pool = fresh_pool().await;
     let inserted = a_key()
-        .with_key("klab_consume_off_by_one")
-        .with_device("dev-off-by-one")
+        .with_key("klab_consume_boundary")
+        .with_device("dev-boundary")
         .with_rate_limit(10)
         .with_remaining(1)
         .insert(&pool)
@@ -193,7 +194,21 @@ async fn consume_quota_denies_at_the_legacy_off_by_one_boundary() {
         .await
         .expect("consume must not error");
 
-    assert!(matches!(out, ConsumeOutcome::RateLimitExceeded));
+    match out {
+        ConsumeOutcome::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
+        ConsumeOutcome::RateLimitExceeded => panic!("expected Allowed at boundary"),
+    }
+
+    let next = r
+        .consume_quota(
+            &auth_key(&inserted.key),
+            &device(&inserted.device_id),
+            usage(1),
+            now(),
+        )
+        .await
+        .expect("consume must not error");
+    assert!(matches!(next, ConsumeOutcome::RateLimitExceeded));
 }
 
 #[tokio::test]
@@ -233,9 +248,9 @@ async fn consume_quota_resets_when_the_window_has_elapsed() {
 
 #[tokio::test]
 async fn consume_quota_never_oversells_under_concurrency() {
-    // A classic read-modify-write leak would let the 20 spawned
-    // consumers race past remaining==20 — the atomic UPDATE ensures
-    // exactly 19 Allowed (legacy off-by-one) and the rest refused.
+    // A classic read-modify-write leak would let 21 spawned consumers
+    // race past remaining==20 — the atomic UPDATE with `>=` ensures
+    // exactly 20 Allowed and the surplus refused.
     let pool = fresh_pool().await;
     let inserted = a_key()
         .with_key("klab_consume_race")
@@ -248,7 +263,7 @@ async fn consume_quota_never_oversells_under_concurrency() {
     let r = Arc::new(repo(pool.clone()));
 
     let mut handles = Vec::new();
-    for _ in 0..20 {
+    for _ in 0..21 {
         let r = r.clone();
         let k = inserted.key.clone();
         let d = inserted.device_id.clone();
@@ -265,9 +280,9 @@ async fn consume_quota_never_oversells_under_concurrency() {
             allowed += 1;
         }
     }
-    // Legacy off-by-one: 20 starting remaining, predicate `>`, so the
-    // 20th attempt (remaining==1 at that point) is refused.
-    assert_eq!(allowed, 19);
+    // Predicate `>=`: all 20 starting slots are consumable, so
+    // exactly 20 attempts win and the 21st is refused.
+    assert_eq!(allowed, 20);
 
     let (final_remaining,): (i32,) =
         sqlx::query_as("SELECT rate_limit_remaining FROM authentication_keys WHERE id = $1")
@@ -275,15 +290,15 @@ async fn consume_quota_never_oversells_under_concurrency() {
             .fetch_one(&pool)
             .await
             .expect("read back");
-    assert_eq!(final_remaining, 1);
+    assert_eq!(final_remaining, 0);
 }
 
 #[tokio::test]
-async fn consume_quota_denies_when_daily_is_not_greater_than_usage() {
+async fn consume_quota_denies_when_usage_exceeds_daily() {
     let pool = fresh_pool().await;
     let inserted = a_key()
-        .with_key("klab_consume_usage_gte_daily")
-        .with_device("dev-usage-gte-daily")
+        .with_key("klab_consume_usage_gt_daily")
+        .with_device("dev-usage-gt-daily")
         .with_rate_limit(5)
         .insert(&pool)
         .await;
@@ -294,7 +309,7 @@ async fn consume_quota_denies_when_daily_is_not_greater_than_usage() {
         .consume_quota(
             &auth_key(&inserted.key),
             &device(&inserted.device_id),
-            usage(5),
+            usage(6),
             now(),
         )
         .await

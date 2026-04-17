@@ -30,27 +30,33 @@ test.describe('POST /v1/auth — rate limit exhaustion and reset', () => {
   });
 
   test('exhaust the limit → 429 → wait interval → 200', async ({ request }) => {
+    // daily=2, remaining=2. Predicate is `>=`, so both slots are
+    // consumable: first call → remaining=1, second call → remaining=0,
+    // third call is refused (remaining < usage).
     const first = await request.post('/v1/auth', {
       data: { auth_key: KEY, auth_device: DEVICE, rate_limit_usage: 1 },
     });
     expect(first.status()).toBe(200);
 
-    // Second call brings remaining to 0; endpoint returns 429 when new_remaining <= 0.
     const second = await request.post('/v1/auth', {
       data: { auth_key: KEY, auth_device: DEVICE, rate_limit_usage: 1 },
     });
-    // Per main.rs:365, the 429 triggers when new_remaining <= 0. Second call: 1 - 1 = 0 → 429.
-    expect(second.status()).toBe(429);
-    const body = await second.json();
+    expect(second.status()).toBe(200);
+
+    const third = await request.post('/v1/auth', {
+      data: { auth_key: KEY, auth_device: DEVICE, rate_limit_usage: 1 },
+    });
+    expect(third.status()).toBe(429);
+    const body = await third.json();
     expect(body.message).toMatch(/Rate limit exceeded/i);
 
     // Wait past the interval + a margin so the next call resets.
     // Also need to wait past the AUTH_CACHE_TTL_SECONDS=2 set in fixtures/env.ts.
     await new Promise((r) => setTimeout(r, (INTERVAL_SECONDS + 3) * 1000));
 
-    const third = await request.post('/v1/auth', {
+    const fourth = await request.post('/v1/auth', {
       data: { auth_key: KEY, auth_device: DEVICE, rate_limit_usage: 1 },
     });
-    expect(third.status()).toBe(200);
+    expect(fourth.status()).toBe(200);
   });
 });

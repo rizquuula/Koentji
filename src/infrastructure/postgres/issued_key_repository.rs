@@ -15,12 +15,11 @@
 //!   call; for now the helper and the adapter share the SQL verbatim
 //!   so behaviour is identical.
 //!
-//! Note on semantics: the SQL keeps the legacy off-by-one
-//! (`daily > usage`, `remaining > usage`) so the public `/v1/auth`
-//! envelope stays byte-identical — changing the predicate to `>=`
-//! would flip the 401/429 boundary for clients that rely on the
-//! "last slot refused" behaviour. The cleanup is deferred to the
-//! Phase 1 wiring commit (1.6) alongside any envelope work.
+//! Semantics: `daily >= usage` and `remaining >= usage` — the last
+//! slot is consumable. A request with `usage == remaining` succeeds
+//! and drops remaining to `0`; the next request returns 429. The
+//! `/v1/auth` envelope fields and status codes are unchanged; only
+//! the boundary of when 429 fires moves by one.
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -113,9 +112,9 @@ impl IssuedKeyRepository for PostgresIssuedKeyRepository {
                             (SELECT duration_seconds FROM rate_limit_intervals
                              WHERE id = ak.rate_limit_interval_id),
                             86400)
-                  OR ak.rate_limit_remaining > $2::int
+                  OR ak.rate_limit_remaining >= $2::int
               )
-              AND ak.rate_limit_daily > $2::int
+              AND ak.rate_limit_daily >= $2::int
             RETURNING ak.rate_limit_remaining, ak.rate_limit_updated_at
             "#,
         )

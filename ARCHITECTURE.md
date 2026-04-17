@@ -165,13 +165,14 @@ SET remaining = CASE
     END,
     updated_at = $now
 WHERE key = $k AND device_id = $d
-  AND (window_elapsed OR remaining > $usage)  -- legacy off-by-one preserved
+  AND (window_elapsed OR remaining >= $usage)
+  AND daily >= $usage
 RETURNING remaining, updated_at
 ```
 
-If the `RETURNING` comes back empty, it's a 429 — no retry, no race. Ten concurrent `spawn`s under the same key in the integration suite produce exactly `daily − 1` Allowed outcomes. See `tests/postgres_issued_key_repository.rs` for the concurrency probe.
+If the `RETURNING` comes back empty, it's a 429 — no retry, no race. `N+1` concurrent `spawn`s at a key with `daily=N` produce exactly `N` Allowed outcomes and one refusal. See `tests/postgres_issued_key_repository.rs` for the concurrency probe.
 
-**The off-by-one is legacy.** The old handler returned 429 once `remaining <= 0` after decrement, which means only `daily − 1` consumes per window were actually usable. We preserved that semantic because the Playwright suite asserts it — changing it would be a `/v2/auth`-scale break.
+**Predicate semantic.** A request with `usage == remaining` is Allowed and drops remaining to exactly `0`; the next request is refused. `daily` is fully consumable per window. (Prior revisions kept a `>` predicate — the "legacy off-by-one" — which left the last slot unreachable. That was corrected so admin-UI `remaining/daily` matches operator intuition; the `/v1/auth` envelope fields and status codes are unchanged.)
 
 ---
 

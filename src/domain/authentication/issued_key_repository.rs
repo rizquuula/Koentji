@@ -67,7 +67,7 @@ pub enum ConsumeOutcome {
         updated_at: DateTime<Utc>,
     },
     /// The predicate did not match: the window is still open and
-    /// `remaining <= usage`, or `daily <= usage`. No row was written.
+    /// `remaining < usage`, or `daily < usage`. No row was written.
     RateLimitExceeded,
 }
 
