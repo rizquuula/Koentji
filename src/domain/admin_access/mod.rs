@@ -18,7 +18,9 @@ pub mod constant_time;
 #[cfg(feature = "ssr")]
 pub mod login_attempt_ledger;
 
-pub use admin_credentials::{AdminCredentials, CredentialError};
+#[cfg(feature = "ssr")]
+pub use admin_credentials::AdminCredentials;
+pub use admin_credentials::CredentialError;
 #[cfg(feature = "ssr")]
 pub use constant_time::equals_in_constant_time;
 #[cfg(feature = "ssr")]

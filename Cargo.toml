@@ -80,6 +80,7 @@ codegen-units = 1
 panic = "abort"
 
 [package.metadata.leptos]
+bin-target = "koentji"
 output-name = "koentji"
 site-root = "target/site"
 site-pkg-dir = "pkg"
