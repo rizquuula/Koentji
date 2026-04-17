@@ -30,6 +30,7 @@ use crate::domain::authentication::{
     IssuedKeyRepository, RateLimitAmount, RateLimitLedger, RateLimitUsage, RateLimitWindow,
     RepositoryError, SubscriptionName,
 };
+use crate::domain::errors::DomainError;
 
 #[derive(Clone)]
 pub struct PostgresIssuedKeyRepository {
@@ -293,6 +294,50 @@ impl IssuedKeyRepository for PostgresIssuedKeyRepository {
                 })
             })
     }
+
+    async fn revoke_key(
+        &self,
+        id: IssuedKeyId,
+        revoked_by: &str,
+    ) -> Result<Option<(AuthKey, DeviceId)>, RepositoryError> {
+        let backend = |e: sqlx::Error| RepositoryError::Backend(e.to_string());
+
+        // Soft-delete — idempotent: if deleted_at is already set we
+        // still return the row so the caller can re-invalidate its
+        // cache entry. COALESCE keeps the original revocation time.
+        let row: Option<(String, String)> = sqlx::query_as(
+            r#"UPDATE authentication_keys
+               SET deleted_at = COALESCE(deleted_at, NOW()),
+                   deleted_by = COALESCE(deleted_by, $2),
+                   updated_at = NOW()
+               WHERE id = $1
+               RETURNING key, device_id"#,
+        )
+        .bind(id.value())
+        .bind(revoked_by)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(backend)?;
+
+        match row {
+            Some((raw_key, raw_device)) => {
+                let key = AuthKey::parse(raw_key).map_err(domain_to_backend)?;
+                let device = DeviceId::parse(raw_device).map_err(domain_to_backend)?;
+                log::info!(
+                    "KeyRevoked: id={}, device={}, revoked_by={}",
+                    id.value(),
+                    device.as_str(),
+                    revoked_by
+                );
+                Ok(Some((key, device)))
+            }
+            None => Ok(None),
+        }
+    }
+}
+
+fn domain_to_backend(e: DomainError) -> RepositoryError {
+    RepositoryError::Backend(format!("stored row failed value-object parse: {:?}", e))
 }
 
 /// Wire row — the raw columns we pull back before re-assembling the

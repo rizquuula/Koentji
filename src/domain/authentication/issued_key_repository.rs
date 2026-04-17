@@ -149,4 +149,17 @@ pub trait IssuedKeyRepository: Send + Sync {
     /// resulting aggregate. `(key, device)` must be unique; a unique-
     /// constraint violation surfaces as [`RepositoryError::Backend`].
     async fn issue_key(&self, command: IssueKeyCommand) -> Result<IssuedKey, RepositoryError>;
+
+    /// Admin command — mark the row at `id` as revoked (soft-delete).
+    ///
+    /// Idempotent: a second call with the same id is a no-op and still
+    /// returns `Ok(Some(_))` so the use case can repeat the cache
+    /// invalidation. Returns `Ok(None)` when no row with `id` exists.
+    /// The `(AuthKey, DeviceId)` in the return tuple lets the use case
+    /// evict the cache entry without a second DB round-trip.
+    async fn revoke_key(
+        &self,
+        id: super::issued_key::IssuedKeyId,
+        revoked_by: &str,
+    ) -> Result<Option<(AuthKey, DeviceId)>, RepositoryError>;
 }

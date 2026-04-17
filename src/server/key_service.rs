@@ -290,23 +290,20 @@ pub fn set_global_auth_cache(cache: std::sync::Arc<crate::cache::AuthCache>) {
 #[server]
 pub async fn delete_key(id: i32) -> Result<(), ServerFnError> {
     use leptos_actix::extract;
-    use sqlx::PgPool;
+    use std::sync::Arc;
 
-    let pool = extract::<actix_web::web::Data<PgPool>>().await?;
+    use crate::application::RevokeKey;
+    use crate::domain::authentication::IssuedKeyId;
 
-    sqlx::query(
-        "UPDATE authentication_keys SET deleted_at = NOW(), deleted_by = 'admin' WHERE id = $1",
-    )
-    .bind(id)
-    .execute(pool.get_ref())
-    .await
-    .map_err(|e| {
-        log::error!("Failed to delete key id={}: {}", id, e);
-        ServerFnError::new(e.to_string())
-    })?;
+    let revoke = extract::<actix_web::web::Data<Arc<RevokeKey>>>().await?;
 
-    log::info!("Key revoked: id={}", id);
-    invalidate_cache_for_key(pool.get_ref(), id).await;
+    revoke
+        .execute(IssuedKeyId::new(id), "admin")
+        .await
+        .map_err(|e| {
+            log::error!("Failed to revoke key id={}: {}", id, e);
+            ServerFnError::new(e.to_string())
+        })?;
 
     Ok(())
 }

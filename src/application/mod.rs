@@ -11,6 +11,8 @@
 
 pub mod authenticate_api_key;
 pub mod issue_key;
+pub mod revoke_key;
 
 pub use authenticate_api_key::{AuthOutcome, AuthenticateApiKey};
 pub use issue_key::IssueKey;
+pub use revoke_key::RevokeKey;

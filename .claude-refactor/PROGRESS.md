@@ -3,7 +3,7 @@
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
 - Current phase: 2
-- Next commit: 2.2
+- Next commit: 2.3
 
 ## Checklist
 
@@ -26,7 +26,7 @@
 
 ### Phase 2 — admin verbs
 - [x] 2.1  feat: issuing a key emits KeyIssued and returns an IssuedKey
-- [ ] 2.2  feat: revoking a key emits KeyRevoked and invalidates auth cache
+- [x] 2.2  feat: revoking a key emits KeyRevoked and invalidates auth cache
 - [ ] 2.3  feat: reassigning a device / resetting rate limit / extending expiration as domain commands
 - [ ] 2.4  fix: device reassignment also evicts the prior auth-cache entry
 - [ ] 2.5  test: cover key-management commands
@@ -88,6 +88,7 @@
 - 1.7  2026-04-17 — +24 `IssuedKey.authorize` tests covering: priority-of-denial (revoked beats expired beats rate-limit, free-trial-ended vs rate-limit), clock boundaries (==expiry denies, nanosecond before allows; window reset fires at `==` boundary, not one ns early), ledger arithmetic edge cases (remaining==usage+1 allowed, usage==daily denied, `usage==0` is allowed without decrement), non-default window (60s window resets after 61s), purity (authorize does not mutate), `updated_at` stamping, denial timestamp round-trip (revoked/expired/free-trial), and lifecycle verb interactions (reassign/reset don't unrevoke; extend_until revives an expired key; None expiry is endless). 36 authorize-focused tests in total (>30 plan target). 78 tests across 6 suites all green.
 - 1.8  2026-04-17 — new `tests/postgres_issued_key_repository.rs` (12 tests) exercises the real DB adapter: `find` hydrates identity + ledger + username/email and returns revoked rows (they are not treated as missing), default window falls back to 86_400s. `consume_quota` allows within quota, refuses at the legacy off-by-one, resets a stale window, never oversells under 20 concurrent spawns (exactly 19 Allowed, final remaining=1). `claim_free_trial` inserts on marker match, rebinds a pre-issued `device_id='-'` row (final count=1), returns None for a plain unknown key. Every test first calls `fresh_pool()` → `reset` so cross-pollution is impossible. 90 rust tests across 7 suites + 77 Playwright tests all green — Phase 1 boundary verified.
 - 2.1  2026-04-17 — new `src/application/issue_key.rs` (`IssueKey` use case) + `IssueKeyCommand` on the repository port + `issue_key` on the Postgres adapter. `server::key_service::create_key` now parses the request into domain value objects (`AuthKey`, `DeviceId`, `SubscriptionName`, `RateLimitAmount`) and delegates to `IssueKey`; the server-fn contract still returns `AuthenticationKey` (full DB row incl. timestamps / audit fields), so the adapter re-fetches by id after the insert — the domain aggregate intentionally doesn't carry those. `main.rs` wires `Arc<IssueKey>` alongside `AuthenticateApiKey`; both share the same `Arc<dyn IssuedKeyRepository>`. `KeyIssued` past-tense log line emitted from the use case — the formal outbox/audit adapter lands in 3.4. No new tests this commit (2.5 covers the admin verbs as a suite); envelope + existing 90 rust tests still green.
+- 2.2  2026-04-17 — new `src/application/revoke_key.rs` (`RevokeKey` use case) + `revoke_key` on the repository port and Postgres adapter. The SQL is idempotent — `COALESCE(deleted_at, NOW())` keeps the original revocation timestamp if the row is already revoked, while `RETURNING key, device_id` lets the use case evict the cache without a second round-trip. `RevokeKey::execute` composes the repo call with `AuthCachePort::invalidate`, so the `delete_key` server fn shrinks to parse id → delegate. `main.rs` wires `Arc<RevokeKey>` sharing the *same* `auth_cache_port` as `AuthenticateApiKey` so admin evictions actually land on the hot-path cache. Legacy `GLOBAL_AUTH_CACHE` OnceLock still serves `update_key` + `reset_rate_limit` — 2.3 migrates those next. 90 rust tests still green; `KeyRevoked` log line emitted.
 
 ## Blockers
 
