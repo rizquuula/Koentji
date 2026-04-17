@@ -64,19 +64,23 @@ pub fn LoginPage() -> impl IntoView {
                     <form on:submit=handle_submit>
                         <Stack gap=crate::components::design::StackGap::Loose>
                             <Show when=move || error.get().is_some()>
-                                <div class="bg-red-50 border border-red-200 text-feedback-danger-ink px-4 py-3 rounded-control text-sm">
+                                <div
+                                    role="alert"
+                                    class="bg-red-50 border border-red-200 text-feedback-danger-ink px-4 py-3 rounded-control text-sm"
+                                >
                                     {move || error.get().unwrap_or_default()}
                                 </div>
                             </Show>
 
                             <div>
-                                <label class="block text-sm font-medium text-ink-body mb-1">"Username"</label>
-                                <Input value=username required=true placeholder="Enter your username" />
+                                <label for="login-username" class="block text-sm font-medium text-ink-body mb-1">"Username"</label>
+                                <Input id="login-username" value=username required=true placeholder="Enter your username" />
                             </div>
 
                             <div>
-                                <label class="block text-sm font-medium text-ink-body mb-1">"Password"</label>
+                                <label for="login-password" class="block text-sm font-medium text-ink-body mb-1">"Password"</label>
                                 <Input
+                                    id="login-password"
                                     value=password
                                     input_type="password"
                                     required=true

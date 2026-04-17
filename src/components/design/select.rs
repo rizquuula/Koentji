@@ -11,10 +11,13 @@ const SELECT_CLASS: &str = "w-full px-3 py-2 border border-surface-strong rounde
 pub fn Select(
     value: RwSignal<String>,
     #[prop(optional)] required: bool,
+    #[prop(optional, into)] id: Option<&'static str>,
     children: Children,
 ) -> impl IntoView {
+    let id = id.unwrap_or("");
     view! {
         <select
+            id=id
             required=required
             class=SELECT_CLASS
             prop:value=move || value.get()

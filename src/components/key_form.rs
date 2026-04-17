@@ -123,19 +123,19 @@ pub fn KeyForm(
         <form on:submit=handle_submit>
             <Stack>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Device ID *"</label>
-                    <Input value=device_id required=true />
+                    <label for="key-device-id" class="block text-sm font-medium text-ink-body mb-1">"Device ID *"</label>
+                    <Input id="key-device-id" value=device_id required=true />
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Username"</label>
-                    <Input value=username />
+                    <label for="key-username" class="block text-sm font-medium text-ink-body mb-1">"Username"</label>
+                    <Input id="key-username" value=username />
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Email"</label>
-                    <Input value=email input_type="email" />
+                    <label for="key-email" class="block text-sm font-medium text-ink-body mb-1">"Email"</label>
+                    <Input id="key-email" value=email input_type="email" />
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Subscription"</label>
+                    <label for="key-subscription" class="block text-sm font-medium text-ink-body mb-1">"Subscription"</label>
                     <Suspense fallback=|| view! { <span class="text-ink-disabled">"Loading..."</span> }>
                         {move || subs_resource.get().map(|result| {
                             match result {
@@ -152,6 +152,7 @@ pub fn KeyForm(
                                     };
                                     view! {
                                         <select
+                                            id="key-subscription"
                                             class="w-full px-3 py-2 border border-surface-strong rounded-control focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                                             prop:value=move || subscription_type_id.get()
                                             on:change=on_sub_change
@@ -174,8 +175,9 @@ pub fn KeyForm(
                     </Suspense>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Rate Limit"</label>
+                    <label for="key-rate-limit" class="block text-sm font-medium text-ink-body mb-1">"Rate Limit"</label>
                     <Input
+                        id="key-rate-limit"
                         value=rate_limit
                         input_type="number"
                         min="0"
@@ -186,8 +188,8 @@ pub fn KeyForm(
                     </p>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Expiration Date"</label>
-                    <Input value=expired_at input_type="datetime-local" />
+                    <label for="key-expired-at" class="block text-sm font-medium text-ink-body mb-1">"Expiration Date"</label>
+                    <Input id="key-expired-at" value=expired_at input_type="datetime-local" />
                 </div>
                 <div class="flex justify-end space-x-3 pt-4 border-t">
                     <Button

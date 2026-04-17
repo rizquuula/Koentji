@@ -21,12 +21,18 @@ pub fn Input(
     /// treatment so it visibly signals its non-interactivity.
     #[prop(optional, into)]
     readonly: Signal<bool>,
+    /// Optional DOM id — pair with `<label for=id>` so a screen reader
+    /// announces the label when the input takes focus.
+    #[prop(optional, into)]
+    id: Option<&'static str>,
 ) -> impl IntoView {
     let ty = input_type.unwrap_or("text");
     let placeholder = placeholder.unwrap_or("");
     let min = min.unwrap_or("");
+    let id = id.unwrap_or("");
     view! {
         <input
+            id=id
             type=ty
             required=required
             placeholder=placeholder

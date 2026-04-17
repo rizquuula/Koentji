@@ -290,24 +290,24 @@ fn SubscriptionForm(
         <form on:submit=handle_submit>
             <Stack>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Name *"</label>
-                    <Input value=name required=true placeholder="e.g. basic" />
+                    <label for="sub-name" class="block text-sm font-medium text-ink-body mb-1">"Name *"</label>
+                    <Input id="sub-name" value=name required=true placeholder="e.g. basic" />
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Display Name *"</label>
-                    <Input value=display_name required=true placeholder="e.g. Basic" />
+                    <label for="sub-display-name" class="block text-sm font-medium text-ink-body mb-1">"Display Name *"</label>
+                    <Input id="sub-display-name" value=display_name required=true placeholder="e.g. Basic" />
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Rate Limit Amount *"</label>
-                    <Input value=rate_limit_amount required=true input_type="number" min="1" />
+                    <label for="sub-rate-amount" class="block text-sm font-medium text-ink-body mb-1">"Rate Limit Amount *"</label>
+                    <Input id="sub-rate-amount" value=rate_limit_amount required=true input_type="number" min="1" />
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Rate Limit Interval *"</label>
+                    <label for="sub-rate-interval" class="block text-sm font-medium text-ink-body mb-1">"Rate Limit Interval *"</label>
                     <Suspense fallback=|| view! { <span class="text-ink-disabled">"Loading intervals..."</span> }>
                         {move || intervals_resource.get().map(|result| {
                             match result {
                                 Ok(intervals) => view! {
-                                    <Select value=rate_limit_interval_id required=true>
+                                    <Select id="sub-rate-interval" value=rate_limit_interval_id required=true>
                                         <option value="">"Select interval..."</option>
                                         {intervals.into_iter().map(|interval| {
                                             let val = interval.id.to_string();

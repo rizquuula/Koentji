@@ -283,16 +283,17 @@ fn RateLimitIntervalForm(
         <form on:submit=handle_submit>
             <Stack>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Name *"</label>
-                    <Input value=name required=true placeholder="e.g. 3_hourly" />
+                    <label for="interval-name" class="block text-sm font-medium text-ink-body mb-1">"Name *"</label>
+                    <Input id="interval-name" value=name required=true placeholder="e.g. 3_hourly" />
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Display Name *"</label>
-                    <Input value=display_name required=true placeholder="e.g. 3 Hourly" />
+                    <label for="interval-display-name" class="block text-sm font-medium text-ink-body mb-1">"Display Name *"</label>
+                    <Input id="interval-display-name" value=display_name required=true placeholder="e.g. 3 Hourly" />
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-ink-body mb-1">"Duration (seconds) *"</label>
+                    <label for="interval-duration" class="block text-sm font-medium text-ink-body mb-1">"Duration (seconds) *"</label>
                     <Input
+                        id="interval-duration"
                         value=duration_seconds
                         required=true
                         input_type="number"
