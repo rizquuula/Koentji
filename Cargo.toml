@@ -75,6 +75,10 @@ ssr = [
     "leptos_router/ssr",
 ]
 
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
 [profile.wasm-release]
 inherits = "release"
 opt-level = 'z'
