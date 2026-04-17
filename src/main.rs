@@ -73,9 +73,6 @@ async fn main() -> std::io::Result<()> {
         std::env::var("FREE_TRIAL_SUBSCRIPTION_NAME").unwrap_or_else(|_| "free".to_string()),
     );
 
-    let legacy_auth_cache = std::sync::Arc::new(koentji::cache::AuthCache::new(cache_ttl));
-    koentji::server::key_service::set_global_auth_cache(legacy_auth_cache.clone());
-
     let issued_key_repo: std::sync::Arc<dyn koentji::domain::authentication::IssuedKeyRepository> =
         std::sync::Arc::new(PostgresIssuedKeyRepository::new(pool.clone()));
     let auth_cache_port: std::sync::Arc<dyn koentji::domain::authentication::AuthCachePort> =
@@ -131,6 +128,7 @@ async fn main() -> std::io::Result<()> {
         let reassign_device = reassign_device.clone();
         let reset_rate_limit = reset_rate_limit.clone();
         let extend_expiration = extend_expiration.clone();
+        let cache_port_data = auth_cache_port.clone();
 
         actix_web::App::new()
             .app_data(web::Data::new(auth_handler))
@@ -139,6 +137,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(reassign_device))
             .app_data(web::Data::new(reset_rate_limit))
             .app_data(web::Data::new(extend_expiration))
+            .app_data(web::Data::new(cache_port_data))
             .service(auth_endpoint)
             .service(
                 web::resource("/docs").route(web::get().to(|| async {

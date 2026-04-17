@@ -193,8 +193,24 @@ pub async fn update_key(
 ) -> Result<AuthenticationKey, ServerFnError> {
     use leptos_actix::extract;
     use sqlx::PgPool;
+    use std::sync::Arc;
+
+    use crate::domain::authentication::{AuthCachePort, AuthKey, DeviceId};
 
     let pool = extract::<actix_web::web::Data<PgPool>>().await?;
+    let cache = extract::<actix_web::web::Data<Arc<dyn AuthCachePort>>>().await?;
+
+    // Snapshot the pre-update (key, device_id) so we can evict the
+    // *previous* cache entry if the device was reassigned — the
+    // legacy helper only ever evicted the post-update device, which
+    // left the prior entry stale (B9).
+    let previous: Option<(String, String)> = sqlx::query_as::<_, (String, String)>(
+        "SELECT key, device_id FROM authentication_keys WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool.get_ref())
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     // Look up subscription type for name + interval if changing subscription
     let (subscription_name, rate_limit_interval_id) = if let Some(st_id) = req.subscription_type_id
@@ -257,34 +273,26 @@ pub async fn update_key(
     })?;
 
     log::info!("Key updated: id={}", id);
-    // Invalidate auth cache for this key
-    invalidate_cache_for_key(pool.get_ref(), id).await;
 
-    Ok(updated)
-}
+    // Evict the prior `(key, old_device)` entry always (any field
+    // change stales the cached snapshot); when the device was
+    // reassigned, also evict the new `(key, new_device)` entry in
+    // case something raced and populated it post-UPDATE.
+    if let Some((raw_prev_key, raw_prev_device)) = previous {
+        let prev_key = AuthKey::parse(raw_prev_key.clone())
+            .map_err(|e| ServerFnError::new(format!("stored key: {:?}", e)))?;
+        let prev_device = DeviceId::parse(raw_prev_device.clone())
+            .map_err(|e| ServerFnError::new(format!("stored device: {:?}", e)))?;
+        cache.invalidate(&prev_key, &prev_device).await;
 
-#[cfg(feature = "ssr")]
-async fn invalidate_cache_for_key(pool: &sqlx::PgPool, id: i32) {
-    if let Ok((key, device_id)) = sqlx::query_as::<_, (String, String)>(
-        "SELECT key, device_id FROM authentication_keys WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_one(pool)
-    .await
-    {
-        if let Some(cache) = GLOBAL_AUTH_CACHE.get() {
-            cache.invalidate(&key, &device_id).await;
+        if raw_prev_device != updated.device_id {
+            let new_device = DeviceId::parse(updated.device_id.clone())
+                .map_err(|e| ServerFnError::new(format!("stored device: {:?}", e)))?;
+            cache.invalidate(&prev_key, &new_device).await;
         }
     }
-}
 
-#[cfg(feature = "ssr")]
-static GLOBAL_AUTH_CACHE: std::sync::OnceLock<std::sync::Arc<crate::cache::AuthCache>> =
-    std::sync::OnceLock::new();
-
-#[cfg(feature = "ssr")]
-pub fn set_global_auth_cache(cache: std::sync::Arc<crate::cache::AuthCache>) {
-    let _ = GLOBAL_AUTH_CACHE.set(cache);
+    Ok(updated)
 }
 
 #[server]
