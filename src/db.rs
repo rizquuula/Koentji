@@ -37,7 +37,10 @@ pub async fn create_pool() -> PgPool {
                  Try `make docker-up-db`, or check DATABASE_URL (host/port/credentials) and firewall.",
                 redacted
             );
-            panic!("Database unreachable: PoolTimedOut connecting to {}", redacted);
+            panic!(
+                "Database unreachable: PoolTimedOut connecting to {}",
+                redacted
+            );
         }
         Err(e) => {
             log::error!(

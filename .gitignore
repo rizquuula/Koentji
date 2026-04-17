@@ -4,7 +4,6 @@ style/output.css
 
 # Dependencies
 /node_modules/
-Cargo.lock
 
 # Environment
 .env
