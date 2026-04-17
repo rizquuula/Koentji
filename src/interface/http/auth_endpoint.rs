@@ -29,6 +29,7 @@ pub struct AuthRequest {
     pub auth_device: String,
     /// Number of rate limit units to consume (default: 1)
     #[serde(default = "default_rate_limit_usage")]
+    #[schema(default = 1, example = 1)]
     pub rate_limit_usage: i32,
 }
 
