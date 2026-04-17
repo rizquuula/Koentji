@@ -39,4 +39,8 @@ export const SERVER_ENV: Record<string, string> = {
   AUTH_CACHE_TTL_SECONDS: '2',
   WORKERS: '2',
   RUST_LOG: 'info',
+  // Playwright drives the server over plain HTTP; Secure cookies
+  // would be dropped by the browser and the admin session would
+  // never stick.
+  COOKIE_SECURE: 'false',
 };

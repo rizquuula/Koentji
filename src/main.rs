@@ -118,6 +118,22 @@ async fn main() -> std::io::Result<()> {
     });
     let cookie_key = Key::from(secret_key.as_bytes());
 
+    // Session cookie `Secure` flag. Defaults to `true` — shipping an
+    // admin session cookie over plain HTTP in production is a
+    // credential-theft vector. Dev and e2e run on `http://localhost`
+    // and must opt out with `COOKIE_SECURE=false`. Misconfiguration is
+    // visible at boot via the warn line.
+    let cookie_secure = match std::env::var("COOKIE_SECURE").as_deref() {
+        Ok("false") | Ok("0") | Ok("no") => false,
+        Ok(_) => true,
+        Err(_) => {
+            log::warn!(
+                "COOKIE_SECURE not set, defaulting to true — set COOKIE_SECURE=false for local dev"
+            );
+            true
+        }
+    };
+
     let conf = get_configuration(None).unwrap();
     let addr = conf.leptos_options.site_addr;
 
@@ -167,6 +183,7 @@ async fn main() -> std::io::Result<()> {
                 SessionMiddleware::builder(CookieSessionStore::default(), cookie_key.clone())
                     .cookie_name("koentjilab_session".to_string())
                     .cookie_http_only(true)
+                    .cookie_secure(cookie_secure)
                     .cookie_same_site(actix_web::cookie::SameSite::Lax)
                     .cookie_content_security(CookieContentSecurity::Private)
                     .session_lifecycle(

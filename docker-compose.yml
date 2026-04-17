@@ -13,6 +13,7 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - FREE_TRIAL_KEY=${FREE_TRIAL_KEY:-FREE_TRIAL}
       - AUTH_CACHE_TTL_SECONDS=${AUTH_CACHE_TTL_SECONDS:-900}
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
     depends_on:
       db:
         condition: service_healthy
