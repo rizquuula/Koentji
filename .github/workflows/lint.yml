@@ -1,0 +1,47 @@
+name: Lint
+
+# Supply-chain + container gates. Separate workflow from Test so a
+# transient `cargo audit` advisory or a Docker registry blip doesn't
+# block the test signal.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `cargo audit` compares Cargo.lock against the RustSec advisory
+      # database. A failure doesn't block a merge by itself (the
+      # signal is advisory in the startup sense — informs the next
+      # patch release) but we want it red and visible on every PR.
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build but don't push — the release workflow handles publishing.
+      # Buildx cache speeds up repeat runs substantially on warm PRs.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: koentji:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
