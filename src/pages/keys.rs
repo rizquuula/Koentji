@@ -5,14 +5,23 @@ use crate::components::modal::{ConfirmModal, Modal};
 use crate::models::AuthenticationKey;
 use crate::server::key_service::{delete_key, list_keys, reset_rate_limit};
 use leptos::prelude::*;
+use leptos_router::hooks::query_signal;
 
 #[component]
 pub fn KeysPage() -> impl IntoView {
-    let page = RwSignal::new(1i32);
-    let search = RwSignal::new(String::new());
-    let subscription_filter = RwSignal::new(String::new());
-    let status_filter = RwSignal::new(String::new());
+    // URL query params are the source of truth for filters — copy-pasting a
+    // link or hitting the back button restores the exact search. `None`
+    // encodes the default (page 1, no filter) so empty URLs stay clean.
+    let (page_q, set_page) = query_signal::<i32>("page");
+    let (search_q, set_search) = query_signal::<String>("search");
+    let (subscription_q, set_subscription) = query_signal::<String>("subscription");
+    let (status_q, set_status) = query_signal::<String>("status");
     let refresh_counter = RwSignal::new(0u32);
+
+    let page = Signal::derive(move || page_q.get().unwrap_or(1));
+    let search = Signal::derive(move || search_q.get().unwrap_or_default());
+    let subscription_filter = Signal::derive(move || subscription_q.get().unwrap_or_default());
+    let status_filter = Signal::derive(move || status_q.get().unwrap_or_default());
 
     let show_create_modal = RwSignal::new(false);
     let editing_key = RwSignal::new(None::<AuthenticationKey>);
@@ -75,7 +84,10 @@ pub fn KeysPage() -> impl IntoView {
     // fired five `search.set(...)` calls 300ms apart, each triggering a
     // resource refetch. Keeping the pending handle in a StoredValue and
     // clearing it before re-scheduling collapses N timers back to one.
-    let search_input = RwSignal::new(String::new());
+    //
+    // `search_input` is the literal input value (updates on every
+    // keystroke); the debounced write lands in the URL query param.
+    let search_input = RwSignal::new(search.get_untracked());
     let pending_debounce = StoredValue::new(None::<leptos::prelude::TimeoutHandle>);
     Effect::new(move |_| {
         let val = search_input.get();
@@ -86,8 +98,8 @@ pub fn KeysPage() -> impl IntoView {
         });
         let handle = set_timeout_with_handle(
             move || {
-                search.set(val);
-                page.set(1);
+                set_search.set(if val.is_empty() { None } else { Some(val) });
+                set_page.set(None);
             },
             std::time::Duration::from_millis(300),
         );
@@ -128,8 +140,9 @@ pub fn KeysPage() -> impl IntoView {
                             class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                             prop:value=move || subscription_filter.get()
                             on:change=move |ev| {
-                                subscription_filter.set(event_target_value(&ev));
-                                page.set(1);
+                                let v = event_target_value(&ev);
+                                set_subscription.set(if v.is_empty() { None } else { Some(v) });
+                                set_page.set(None);
                             }
                         >
                             <option value="">"All Subscriptions"</option>
@@ -142,8 +155,9 @@ pub fn KeysPage() -> impl IntoView {
                             class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                             prop:value=move || status_filter.get()
                             on:change=move |ev| {
-                                status_filter.set(event_target_value(&ev));
-                                page.set(1);
+                                let v = event_target_value(&ev);
+                                set_status.set(if v.is_empty() { None } else { Some(v) });
+                                set_page.set(None);
                             }
                         >
                             <option value="">"All Statuses"</option>
@@ -166,6 +180,10 @@ pub fn KeysPage() -> impl IntoView {
                         on_delete=on_delete
                         on_reset=on_reset
                         page=page
+                        on_page_change=Callback::new(move |p: i32| {
+                            // Page 1 is the default — encode it as "no param" so URLs stay clean.
+                            set_page.set(if p <= 1 { None } else { Some(p) });
+                        })
                     />
                 </Suspense>
             </div>

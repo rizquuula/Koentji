@@ -8,7 +8,8 @@ pub fn KeyTable(
     #[prop(into)] on_edit: Callback<AuthenticationKey>,
     #[prop(into)] on_delete: Callback<i32>,
     #[prop(into)] on_reset: Callback<i32>,
-    #[prop(into)] page: RwSignal<i32>,
+    #[prop(into)] page: Signal<i32>,
+    #[prop(into)] on_page_change: Callback<i32>,
 ) -> impl IntoView {
     let total_pages = move || {
         data.get()
@@ -73,14 +74,14 @@ pub fn KeyTable(
                     <button
                         class="px-3 py-1 text-sm border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled=move || page.get() <= 1
-                        on:click=move |_| page.set(page.get() - 1)
+                        on:click=move |_| on_page_change.run(page.get() - 1)
                     >
                         Previous
                     </button>
                     <button
                         class="px-3 py-1 text-sm border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled=move || { page.get() >= total_pages() }
-                        on:click=move |_| page.set(page.get() + 1)
+                        on:click=move |_| on_page_change.run(page.get() + 1)
                     >
                         Next
                     </button>
