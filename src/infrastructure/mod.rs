@@ -11,3 +11,4 @@
 pub mod cache;
 pub mod hashing;
 pub mod postgres;
+pub mod telemetry;
