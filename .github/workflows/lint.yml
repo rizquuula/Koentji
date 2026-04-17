@@ -15,6 +15,10 @@ jobs:
   audit:
     name: cargo audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -25,6 +29,11 @@ jobs:
       - uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # RUSTSEC-2023-0071: rsa crate Marvin timing attack — no patched
+          # version available yet (upstream migration to constant-time is
+          # in flight). We don't expose RSA over a network-observable
+          # sidechannel, so accept the advisory until a patch lands.
+          ignore: RUSTSEC-2023-0071
 
   docker:
     name: docker build
