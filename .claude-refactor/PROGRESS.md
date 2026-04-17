@@ -3,7 +3,7 @@
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
 - Current phase: 3
-- Next commit: 3.1
+- Next commit: 3.2
 
 ## Checklist
 
@@ -32,7 +32,7 @@
 - [x] 2.5  test: cover key-management commands
 
 ### Phase 3 — schema hardening
-- [ ] 3.1  feat: enforce UNIQUE(key, device_id)
+- [x] 3.1  feat: enforce UNIQUE(key, device_id)
 - [ ] 3.2  feat: index authentication_keys on (key, device_id)
 - [ ] 3.3  feat: audit_log table captures domain events
 - [ ] 3.4  tec: outbox adapter publishes domain events to audit_log
@@ -93,6 +93,7 @@
 - 2.4  2026-04-17 — `update_key` server fn now snapshots the pre-UPDATE `(key, device_id)` and evicts that entry via `Arc<dyn AuthCachePort>` (injected as `web::Data`), not the legacy `GLOBAL_AUTH_CACHE` OnceLock. When the device was reassigned, the new `(key, new_device)` entry is also evicted so a concurrent read doesn't leave stale hot-path state. Fixes B9 — legacy helper looked up the CURRENT `device_id` after the UPDATE, so the prior entry stayed cached. `GLOBAL_AUTH_CACHE`, `set_global_auth_cache`, `invalidate_cache_for_key`, and the now-orphan `src/cache.rs` module are removed; `main.rs` drops the `legacy_auth_cache` + `set_global_auth_cache` wiring. Only surviving auth cache is the port + Moka adapter. 90 rust tests still green.
 - 2.5  2026-04-17 — +11 adapter integration tests in `tests/postgres_issued_key_repository.rs` covering all five admin verbs (`issue_key` happy-path + remaining=daily, `revoke_key` happy/idempotent-timestamp-preserved/unknown-id, `reassign_device` returns prev+curr/unknown-id, `reset_rate_limit` restores+stamps/unknown-id, `extend_expiration` set+clear/unknown-id). New `tests/key_management_use_cases.rs` (9 tests) uses in-memory `FakeRepo`/`FakeCache` to pin use-case orchestration: every state-mutating verb evicts the cache on success; `ReassignDevice` evicts BOTH `(key, prev_dev)` and `(key, new_dev)` (B9 guard); unknown ids short-circuit without touching the cache; `IssueKey` never touches the cache at all. Also fixes a pre-existing harness flake: added `--test-threads=1` to `make test` — integration tests share one Postgres DB and coordinate via `reset()`, so parallel TRUNCATEs were stomping on the in-flight concurrency test. 110 rust tests across 8 suites all green.
 - P2-e2e 2026-04-17 — Phase 2 boundary `make e2e`: 77/77 green (53 chromium + 10 api + 14 webkit smoke). `/v1/auth` envelope unchanged; admin CRUD flows still work through the new IssueKey / RevokeKey / ReassignDevice / ResetRateLimit / ExtendExpiration use cases.
+- 3.1  2026-04-17 — `migrations/004_unique_key_device.sql` closes B10. The migration first dedups any ambient duplicate `(key, device_id)` pairs (keeps the most recent `id`, drops the rest — matches "last write wins" admin mental model) and then creates `idx_auth_keys_key_device_unique`. The `IssuedKey` aggregate already addresses rows by this tuple (`find` / `consume_quota` / `revoke_key`), so the constraint is a database-level guarantee of an invariant the domain has always assumed. Two new tests in `tests/schema_constraints.rs` pin the constraint: duplicate `(key, device_id)` is rejected with an error mentioning the index name; the same `key` with different `device_id` is still permitted (FREE_TRIAL and pre-issued rows need this). 112 rust tests across 9 suites green.
 
 ## Blockers
 
