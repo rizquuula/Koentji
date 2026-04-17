@@ -1,9 +1,9 @@
-use crate::components::key_form::KeyForm;
-use crate::components::key_table::KeyTable;
-use crate::components::layout::Layout;
-use crate::components::modal::{ConfirmModal, Modal};
 use crate::models::AuthenticationKey;
 use crate::server::key_service::{delete_key, list_keys, reset_rate_limit};
+use crate::ui::design::modal::{ConfirmModal, Modal};
+use crate::ui::keys::key_form::KeyForm;
+use crate::ui::keys::key_table::KeyTable;
+use crate::ui::shell::layout::Layout;
 use leptos::prelude::*;
 use leptos_router::hooks::query_signal;
 

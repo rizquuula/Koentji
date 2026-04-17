@@ -9,10 +9,12 @@ pub mod badge;
 pub mod button;
 pub mod data_table;
 pub mod input;
+pub mod modal;
 pub mod page_header;
 pub mod select;
 pub mod stack;
 pub mod surface;
+pub mod toast;
 
 pub use badge::{Badge, BadgeTone};
 pub use button::{Button, ButtonType, ButtonVariant};

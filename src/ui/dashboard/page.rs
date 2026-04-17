@@ -1,8 +1,8 @@
-use crate::components::charts::Charts;
-use crate::components::date_range_picker::DateRangePicker;
-use crate::components::layout::Layout;
-use crate::components::stats_cards::StatsCards;
 use crate::server::stats_service::get_dashboard_stats;
+use crate::ui::dashboard::charts::Charts;
+use crate::ui::dashboard::date_range_picker::DateRangePicker;
+use crate::ui::dashboard::stats_cards::StatsCards;
+use crate::ui::shell::layout::Layout;
 use leptos::prelude::*;
 
 #[component]

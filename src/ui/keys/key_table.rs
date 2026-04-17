@@ -1,5 +1,5 @@
-use crate::components::key_row::KeyRow;
 use crate::models::{AuthenticationKey, KeyListResponse};
+use crate::ui::keys::key_row::KeyRow;
 use leptos::prelude::*;
 
 #[component]

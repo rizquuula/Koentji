@@ -1,9 +1,10 @@
-use crate::components::toast::provide_toast_context;
-use crate::pages::{
-    about::AboutPage, dashboard::DashboardPage, keys::KeysPage, landing::LandingPage,
-    login::LoginPage, privacy::PrivacyPage, quickstart::QuickstartPage,
-    rate_limits::LimitsIntervalPage, subscriptions::SubscriptionsPage, terms::TermsPage,
-};
+use crate::ui::admin_access::LoginPage;
+use crate::ui::dashboard::DashboardPage;
+use crate::ui::design::toast::provide_toast_context;
+use crate::ui::keys::KeysPage;
+use crate::ui::marketing::{AboutPage, LandingPage, PrivacyPage, QuickstartPage, TermsPage};
+use crate::ui::rate_limits::LimitsIntervalPage;
+use crate::ui::subscriptions::SubscriptionsPage;
 use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::{

@@ -1,6 +1,6 @@
 use crate::auth::{get_current_user, login};
-use crate::components::design::surface::SurfaceElevation;
-use crate::components::design::{Button, ButtonType, Input, Stack, Surface};
+use crate::ui::design::surface::SurfaceElevation;
+use crate::ui::design::{Button, ButtonType, Input, Stack, Surface};
 use leptos::prelude::*;
 
 #[component]
@@ -62,7 +62,7 @@ pub fn LoginPage() -> impl IntoView {
 
                 <Surface elevation=SurfaceElevation::Overlay padded=true>
                     <form on:submit=handle_submit>
-                        <Stack gap=crate::components::design::StackGap::Loose>
+                        <Stack gap=crate::ui::design::StackGap::Loose>
                             <Show when=move || error.get().is_some()>
                                 <div
                                     role="alert"

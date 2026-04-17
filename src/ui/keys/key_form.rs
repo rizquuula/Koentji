@@ -1,7 +1,7 @@
-use crate::components::design::{Button, ButtonType, ButtonVariant, Input, Stack};
-use crate::components::toast::use_toast;
 use crate::models::{AuthenticationKey, CreateKeyRequest, UpdateKeyRequest};
 use crate::server::subscription_service::list_subscription_types;
+use crate::ui::design::toast::use_toast;
+use crate::ui::design::{Button, ButtonType, ButtonVariant, Input, Stack};
 use leptos::prelude::*;
 
 #[component]

@@ -1,15 +1,15 @@
 use leptos::prelude::*;
 
-use crate::components::design::{
-    Badge, BadgeTone, Button, ButtonType, ButtonVariant, DataTable, Input, PageHeader, Select,
-    Stack,
-};
-use crate::components::layout::Layout;
-use crate::components::modal::{ConfirmModal, Modal};
-use crate::components::toast::use_toast;
 use crate::models::*;
 use crate::server::rate_limit_service::list_rate_limit_intervals;
 use crate::server::subscription_service::*;
+use crate::ui::design::modal::{ConfirmModal, Modal};
+use crate::ui::design::toast::use_toast;
+use crate::ui::design::{
+    Badge, BadgeTone, Button, ButtonType, ButtonVariant, DataTable, Input, PageHeader, Select,
+    Stack,
+};
+use crate::ui::shell::layout::Layout;
 
 #[component]
 pub fn SubscriptionsPage() -> impl IntoView {

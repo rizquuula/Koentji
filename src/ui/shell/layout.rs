@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 use crate::auth::{get_current_user, logout};
-use crate::components::toast::ToastContainer;
+use crate::ui::design::toast::ToastContainer;
 
 #[component]
 pub fn Layout(

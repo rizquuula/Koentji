@@ -3,7 +3,6 @@ pub mod app;
 #[cfg(feature = "ssr")]
 pub mod application;
 pub mod auth;
-pub mod components;
 #[cfg(feature = "ssr")]
 pub mod db;
 pub mod domain;
@@ -12,10 +11,10 @@ pub mod error;
 pub mod infrastructure;
 pub mod interface;
 pub mod models;
-pub mod pages;
 #[cfg(feature = "ssr")]
 pub mod rate_limit;
 pub mod server;
+pub mod ui;
 
 #[cfg(feature = "hydrate")]
 #[wasm_bindgen::prelude::wasm_bindgen]

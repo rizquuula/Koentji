@@ -1,4 +1,4 @@
-use crate::components::layout::Layout;
+use crate::ui::shell::layout::Layout;
 use leptos::prelude::*;
 
 #[component]
