@@ -93,6 +93,10 @@ pub async fn reset(pool: &PgPool) {
         .execute(pool)
         .await
         .expect("truncate authentication_keys");
+    sqlx::query("TRUNCATE audit_log RESTART IDENTITY")
+        .execute(pool)
+        .await
+        .expect("truncate audit_log");
 }
 
 /// Convenience for tests that want the pool + an already-reset state.

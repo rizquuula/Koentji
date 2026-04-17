@@ -2,8 +2,8 @@
 
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
-- Current phase: 3
-- Next commit: 3.4
+- Current phase: 3 (end)
+- Next commit: 4.1
 
 ## Checklist
 
@@ -35,7 +35,7 @@
 - [x] 3.1  feat: enforce UNIQUE(key, device_id)
 - [x] 3.2  feat: index authentication_keys on (key, device_id) — subsumed by 3.1's unique index
 - [x] 3.3  feat: audit_log table captures domain events
-- [ ] 3.4  tec: outbox adapter publishes domain events to audit_log
+- [x] 3.4  tec: outbox adapter publishes domain events to audit_log
 
 ### Phase 4 — admin auth hardening
 - [ ] 4.1  feat: admin password verified against argon2id hash
@@ -96,6 +96,7 @@
 - 3.1  2026-04-17 — `migrations/004_unique_key_device.sql` closes B10. The migration first dedups any ambient duplicate `(key, device_id)` pairs (keeps the most recent `id`, drops the rest — matches "last write wins" admin mental model) and then creates `idx_auth_keys_key_device_unique`. The `IssuedKey` aggregate already addresses rows by this tuple (`find` / `consume_quota` / `revoke_key`), so the constraint is a database-level guarantee of an invariant the domain has always assumed. Two new tests in `tests/schema_constraints.rs` pin the constraint: duplicate `(key, device_id)` is rejected with an error mentioning the index name; the same `key` with different `device_id` is still permitted (FREE_TRIAL and pre-issued rows need this). 112 rust tests across 9 suites green.
 - 3.2  2026-04-17 — **no new migration** — 3.1's `idx_auth_keys_key_device_unique` already serves as the hot-path composite btree. Postgres's query planner treats a unique btree identically to a plain composite btree for equality lookups on `(key, device_id)`, so adding a second index would be duplication. Closes B11 as a consequence of 3.1.
 - 3.3  2026-04-17 — `migrations/005_audit_log.sql` adds the durable `audit_log` table (`id`, `event_type`, `aggregate_id`, `actor`, `payload JSONB`, `occurred_at`). Two indexes cover the expected dashboards: `idx_audit_log_occurred_at` (recent-first scrolling) and a partial `idx_audit_log_aggregate` on `(aggregate_id, occurred_at DESC) WHERE aggregate_id IS NOT NULL` (per-key history). Payload is JSONB so 3.4 can evolve the shape without another migration. No code changes yet — 3.4 wires the outbox adapter that writes rows from the use-case layer.
+- 3.4  746030c 2026-04-17 — new `src/domain/authentication/{events,audit_event_port}.rs` define `DomainEvent` (flat primitives, past-tense variants for every admin verb — `KeyIssued`, `KeyRevoked`, `DeviceReassigned`, `RateLimitReset`, `KeyExpirationExtended`) and the `AuditEventPort` trait. New `src/infrastructure/postgres/audit_event_repository.rs` (`PostgresAuditEventRepository`) writes one row per event to `audit_log`, encoding event-specific fields into the JSONB payload. The adapter is deliberately fire-and-forget: a failed insert is logged at `warn!` but never bubbles back — auditing must not fail the witnessed operation. All five admin verb use cases take `Arc<dyn AuditEventPort>` and publish after repository success (no event on unknown ids — events record facts that changed state). `main.rs` constructs `Arc<dyn AuditEventPort>` alongside the repo + cache ports and injects it into each use case. Tests: +1 FakeAudit in `tests/key_management_use_cases.rs` with assertions that every verb emits the right event and unknown-id paths emit none; new `tests/postgres_audit_event_repository.rs` (6 tests) round-trips every variant through JSONB and covers the closed-pool fire-and-forget path. `tests/common/db.rs::reset` also truncates `audit_log`. 120 rust tests across 9 suites green.
 
 ## Blockers
 

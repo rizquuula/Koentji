@@ -12,22 +12,31 @@
 //!
 //! The repository's atomic `reassign_device` returns
 //! [`DeviceReassignment`] with both devices, so no second DB lookup is
-//! needed.
+//! needed. After eviction, a `DeviceReassigned` domain event is
+//! published through [`AuditEventPort`] (Phase 3.4).
 
 use std::sync::Arc;
 
+use chrono::Utc;
+
 use crate::domain::authentication::{
-    AuthCachePort, DeviceId, DeviceReassignment, IssuedKeyId, IssuedKeyRepository, RepositoryError,
+    AuditEventPort, AuthCachePort, DeviceId, DeviceReassignment, DomainEvent, IssuedKeyId,
+    IssuedKeyRepository, RepositoryError,
 };
 
 pub struct ReassignDevice {
     repo: Arc<dyn IssuedKeyRepository>,
     cache: Arc<dyn AuthCachePort>,
+    audit: Arc<dyn AuditEventPort>,
 }
 
 impl ReassignDevice {
-    pub fn new(repo: Arc<dyn IssuedKeyRepository>, cache: Arc<dyn AuthCachePort>) -> Self {
-        Self { repo, cache }
+    pub fn new(
+        repo: Arc<dyn IssuedKeyRepository>,
+        cache: Arc<dyn AuthCachePort>,
+        audit: Arc<dyn AuditEventPort>,
+    ) -> Self {
+        Self { repo, cache, audit }
     }
 
     pub async fn execute(
@@ -47,6 +56,15 @@ impl ReassignDevice {
                     .await;
                 self.cache
                     .invalidate(&reassignment.key, &reassignment.current_device)
+                    .await;
+                self.audit
+                    .publish(DomainEvent::DeviceReassigned {
+                        aggregate_id: id.value(),
+                        previous_device: reassignment.previous_device.as_str().to_string(),
+                        current_device: reassignment.current_device.as_str().to_string(),
+                        actor: updated_by.to_string(),
+                        occurred_at: Utc::now(),
+                    })
                     .await;
                 Ok(Some(reassignment))
             }

@@ -6,26 +6,30 @@
 //! request parsing (string → value objects), subscription-type lookup,
 //! and the return-shape the frontend expects; this use case is the
 //! single place where a new `authentication_keys` row is actually
-//! materialised. Keeping it thin is intentional — 2.2 (`RevokeKey`),
-//! 2.3 (reassign/reset/extend), 2.4 (cache eviction) will grow the
-//! siblings alongside it.
+//! materialised.
 //!
-//! Emits a past-tense log line (`KeyIssued`) on success so the event
-//! story shows up in logs before the outbox/audit adapter lands in 3.4.
+//! 3.4 wires the audit outbox — every successful mint publishes a
+//! `KeyIssued` domain event through [`AuditEventPort`], which the
+//! Postgres adapter appends to `audit_log`. The past-tense log line
+//! stays on alongside the event: logs rotate out, the audit table is
+//! the durable trail.
 
 use std::sync::Arc;
 
+use chrono::Utc;
+
 use crate::domain::authentication::{
-    IssueKeyCommand, IssuedKey, IssuedKeyRepository, RepositoryError,
+    AuditEventPort, DomainEvent, IssueKeyCommand, IssuedKey, IssuedKeyRepository, RepositoryError,
 };
 
 pub struct IssueKey {
     repo: Arc<dyn IssuedKeyRepository>,
+    audit: Arc<dyn AuditEventPort>,
 }
 
 impl IssueKey {
-    pub fn new(repo: Arc<dyn IssuedKeyRepository>) -> Self {
-        Self { repo }
+    pub fn new(repo: Arc<dyn IssuedKeyRepository>, audit: Arc<dyn AuditEventPort>) -> Self {
+        Self { repo, audit }
     }
 
     pub async fn execute(&self, command: IssueKeyCommand) -> Result<IssuedKey, RepositoryError> {
@@ -42,6 +46,15 @@ impl IssueKey {
                 .unwrap_or("<none>"),
             issued_by,
         );
+        self.audit
+            .publish(DomainEvent::KeyIssued {
+                aggregate_id: issued.id.value(),
+                device: issued.device_id.as_str().to_string(),
+                subscription: issued.subscription.as_ref().map(|s| s.as_str().to_string()),
+                actor: issued_by,
+                occurred_at: Utc::now(),
+            })
+            .await;
         Ok(issued)
     }
 }

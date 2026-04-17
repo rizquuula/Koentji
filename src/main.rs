@@ -52,7 +52,9 @@ async fn main() -> std::io::Result<()> {
     };
     use koentji::domain::authentication::FreeTrialConfig;
     use koentji::infrastructure::cache::MokaAuthCache;
-    use koentji::infrastructure::postgres::PostgresIssuedKeyRepository;
+    use koentji::infrastructure::postgres::{
+        PostgresAuditEventRepository, PostgresIssuedKeyRepository,
+    };
 
     dotenvy::dotenv().ok();
     env_logger::init();
@@ -77,27 +79,33 @@ async fn main() -> std::io::Result<()> {
         std::sync::Arc::new(PostgresIssuedKeyRepository::new(pool.clone()));
     let auth_cache_port: std::sync::Arc<dyn koentji::domain::authentication::AuthCachePort> =
         std::sync::Arc::new(MokaAuthCache::new(cache_ttl));
+    let audit_port: std::sync::Arc<dyn koentji::domain::authentication::AuditEventPort> =
+        std::sync::Arc::new(PostgresAuditEventRepository::new(pool.clone()));
     let auth_handler = std::sync::Arc::new(AuthenticateApiKey::new(
         issued_key_repo.clone(),
         auth_cache_port.clone(),
         free_trial,
     ));
-    let issue_key = std::sync::Arc::new(IssueKey::new(issued_key_repo.clone()));
+    let issue_key = std::sync::Arc::new(IssueKey::new(issued_key_repo.clone(), audit_port.clone()));
     let revoke_key = std::sync::Arc::new(RevokeKey::new(
         issued_key_repo.clone(),
         auth_cache_port.clone(),
+        audit_port.clone(),
     ));
     let reassign_device = std::sync::Arc::new(ReassignDevice::new(
         issued_key_repo.clone(),
         auth_cache_port.clone(),
+        audit_port.clone(),
     ));
     let reset_rate_limit = std::sync::Arc::new(ResetRateLimit::new(
         issued_key_repo.clone(),
         auth_cache_port.clone(),
+        audit_port.clone(),
     ));
     let extend_expiration = std::sync::Arc::new(ExtendExpiration::new(
         issued_key_repo.clone(),
         auth_cache_port.clone(),
+        audit_port.clone(),
     ));
 
     let secret_key = std::env::var("SECRET_KEY").unwrap_or_else(|_| {

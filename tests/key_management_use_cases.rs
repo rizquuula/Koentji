@@ -17,9 +17,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use koentji::application::{ExtendExpiration, IssueKey, ReassignDevice, ResetRateLimit, RevokeKey};
 use koentji::domain::authentication::{
-    AuthCachePort, AuthKey, ConsumeOutcome, DeviceId, DeviceReassignment, FreeTrialConfig,
-    IssueKeyCommand, IssuedKey, IssuedKeyId, IssuedKeyRepository, RateLimitAmount, RateLimitLedger,
-    RateLimitUsage, RateLimitWindow, RepositoryError, SubscriptionName,
+    AuditEventPort, AuthCachePort, AuthKey, ConsumeOutcome, DeviceId, DeviceReassignment,
+    DomainEvent, FreeTrialConfig, IssueKeyCommand, IssuedKey, IssuedKeyId, IssuedKeyRepository,
+    RateLimitAmount, RateLimitLedger, RateLimitUsage, RateLimitWindow, RepositoryError,
+    SubscriptionName,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -179,6 +180,18 @@ impl AuthCachePort for FakeCache {
     }
 }
 
+#[derive(Default)]
+struct FakeAudit {
+    events: Mutex<Vec<DomainEvent>>,
+}
+
+#[async_trait]
+impl AuditEventPort for FakeAudit {
+    async fn publish(&self, event: DomainEvent) {
+        self.events.lock().await.push(event);
+    }
+}
+
 // ---- Helpers --------------------------------------------------------------
 
 fn auth_key(s: &str) -> AuthKey {
@@ -229,7 +242,8 @@ fn sample_command(key: &str, device_s: &str) -> IssueKeyCommand {
 #[tokio::test]
 async fn issue_key_delegates_to_repository_without_cache_interaction() {
     let repo = Arc::new(FakeRepo::default());
-    let issue = IssueKey::new(repo.clone());
+    let audit = Arc::new(FakeAudit::default());
+    let issue = IssueKey::new(repo.clone(), audit.clone());
 
     let result = issue
         .execute(sample_command("klab_new", "dev-new"))
@@ -243,6 +257,13 @@ async fn issue_key_delegates_to_repository_without_cache_interaction() {
         calls.first(),
         Some(RepoCall::Issue { issued_by, device }) if issued_by == "test-admin" && device == "dev-new"
     ));
+
+    let events = audit.events.lock().await;
+    assert_eq!(events.len(), 1, "one KeyIssued event emitted");
+    assert!(matches!(
+        events.first(),
+        Some(DomainEvent::KeyIssued { actor, .. }) if actor == "test-admin"
+    ));
 }
 
 // ---- RevokeKey ------------------------------------------------------------
@@ -252,7 +273,8 @@ async fn revoke_key_invalidates_cache_on_success() {
     let repo = Arc::new(FakeRepo::default());
     *repo.revoke.lock().await = Some(Some((auth_key("klab_revoked"), device("dev-revoked"))));
     let cache = Arc::new(FakeCache::default());
-    let revoke = RevokeKey::new(repo.clone(), cache.clone());
+    let audit = Arc::new(FakeAudit::default());
+    let revoke = RevokeKey::new(repo.clone(), cache.clone(), audit.clone());
 
     let ok = revoke
         .execute(IssuedKeyId::new(7), "test-admin")
@@ -266,6 +288,14 @@ async fn revoke_key_invalidates_cache_on_success() {
         evictions.first().unwrap(),
         &("klab_revoked".to_string(), "dev-revoked".to_string())
     );
+
+    let events = audit.events.lock().await;
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        events.first(),
+        Some(DomainEvent::KeyRevoked { aggregate_id: 7, device, actor, .. })
+            if device == "dev-revoked" && actor == "test-admin"
+    ));
 }
 
 #[tokio::test]
@@ -273,7 +303,8 @@ async fn revoke_key_does_not_touch_cache_on_unknown_id() {
     let repo = Arc::new(FakeRepo::default());
     // Default: revoke returns None.
     let cache = Arc::new(FakeCache::default());
-    let revoke = RevokeKey::new(repo.clone(), cache.clone());
+    let audit = Arc::new(FakeAudit::default());
+    let revoke = RevokeKey::new(repo.clone(), cache.clone(), audit.clone());
 
     let ok = revoke
         .execute(IssuedKeyId::new(9_999), "test-admin")
@@ -284,6 +315,10 @@ async fn revoke_key_does_not_touch_cache_on_unknown_id() {
     assert!(
         cache.invalidations.lock().await.is_empty(),
         "no cache eviction when nothing was revoked",
+    );
+    assert!(
+        audit.events.lock().await.is_empty(),
+        "no audit event when nothing changed state",
     );
 }
 
@@ -300,7 +335,8 @@ async fn reassign_device_invalidates_previous_and_current_entries() {
         current_device: device("dev-new"),
     }));
     let cache = Arc::new(FakeCache::default());
-    let reassign = ReassignDevice::new(repo.clone(), cache.clone());
+    let audit = Arc::new(FakeAudit::default());
+    let reassign = ReassignDevice::new(repo.clone(), cache.clone(), audit.clone());
 
     let result = reassign
         .execute(IssuedKeyId::new(3), device("dev-new"), "test-admin")
@@ -323,13 +359,27 @@ async fn reassign_device_invalidates_previous_and_current_entries() {
         ("klab_move".to_string(), "dev-new".to_string()),
         "current entry evicted second",
     );
+
+    let events = audit.events.lock().await;
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        events.first(),
+        Some(DomainEvent::DeviceReassigned {
+            aggregate_id: 3,
+            previous_device,
+            current_device,
+            actor,
+            ..
+        }) if previous_device == "dev-old" && current_device == "dev-new" && actor == "test-admin"
+    ));
 }
 
 #[tokio::test]
 async fn reassign_device_does_not_touch_cache_on_unknown_id() {
     let repo = Arc::new(FakeRepo::default());
     let cache = Arc::new(FakeCache::default());
-    let reassign = ReassignDevice::new(repo.clone(), cache.clone());
+    let audit = Arc::new(FakeAudit::default());
+    let reassign = ReassignDevice::new(repo.clone(), cache.clone(), audit.clone());
 
     let out = reassign
         .execute(IssuedKeyId::new(9_999), device("dev-ghost"), "test-admin")
@@ -338,6 +388,7 @@ async fn reassign_device_does_not_touch_cache_on_unknown_id() {
 
     assert!(out.is_none());
     assert!(cache.invalidations.lock().await.is_empty());
+    assert!(audit.events.lock().await.is_empty());
 }
 
 // ---- ResetRateLimit -------------------------------------------------------
@@ -347,7 +398,8 @@ async fn reset_rate_limit_invalidates_cache_on_success() {
     let repo = Arc::new(FakeRepo::default());
     *repo.reset.lock().await = Some(Some((auth_key("klab_reset"), device("dev-reset"))));
     let cache = Arc::new(FakeCache::default());
-    let reset = ResetRateLimit::new(repo.clone(), cache.clone());
+    let audit = Arc::new(FakeAudit::default());
+    let reset = ResetRateLimit::new(repo.clone(), cache.clone(), audit.clone());
 
     let ok = reset
         .execute(IssuedKeyId::new(11), Utc::now(), "test-admin")
@@ -361,13 +413,22 @@ async fn reset_rate_limit_invalidates_cache_on_success() {
         evictions.first().unwrap(),
         &("klab_reset".to_string(), "dev-reset".to_string())
     );
+
+    let events = audit.events.lock().await;
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        events.first(),
+        Some(DomainEvent::RateLimitReset { aggregate_id: 11, device, actor, .. })
+            if device == "dev-reset" && actor == "test-admin"
+    ));
 }
 
 #[tokio::test]
 async fn reset_rate_limit_does_not_touch_cache_on_unknown_id() {
     let repo = Arc::new(FakeRepo::default());
     let cache = Arc::new(FakeCache::default());
-    let reset = ResetRateLimit::new(repo.clone(), cache.clone());
+    let audit = Arc::new(FakeAudit::default());
+    let reset = ResetRateLimit::new(repo.clone(), cache.clone(), audit.clone());
 
     let ok = reset
         .execute(IssuedKeyId::new(9_999), Utc::now(), "test-admin")
@@ -376,6 +437,7 @@ async fn reset_rate_limit_does_not_touch_cache_on_unknown_id() {
 
     assert!(!ok);
     assert!(cache.invalidations.lock().await.is_empty());
+    assert!(audit.events.lock().await.is_empty());
 }
 
 // ---- ExtendExpiration -----------------------------------------------------
@@ -386,11 +448,12 @@ async fn extend_expiration_invalidates_cache_on_set_and_on_clear() {
     // snapshot — without eviction, `IssuedKey::authorize` could still
     // deny a just-extended key until TTL.
     let cache = Arc::new(FakeCache::default());
+    let audit = Arc::new(FakeAudit::default());
 
     // Set branch.
     let repo_set = Arc::new(FakeRepo::default());
     *repo_set.extend.lock().await = Some(Some((auth_key("klab_ext"), device("dev-ext"))));
-    let extend_set = ExtendExpiration::new(repo_set.clone(), cache.clone());
+    let extend_set = ExtendExpiration::new(repo_set.clone(), cache.clone(), audit.clone());
     let ok = extend_set
         .execute(
             IssuedKeyId::new(5),
@@ -404,7 +467,7 @@ async fn extend_expiration_invalidates_cache_on_set_and_on_clear() {
     // Clear branch (None).
     let repo_clear = Arc::new(FakeRepo::default());
     *repo_clear.extend.lock().await = Some(Some((auth_key("klab_ext"), device("dev-ext"))));
-    let extend_clear = ExtendExpiration::new(repo_clear.clone(), cache.clone());
+    let extend_clear = ExtendExpiration::new(repo_clear.clone(), cache.clone(), audit.clone());
     let ok = extend_clear
         .execute(IssuedKeyId::new(5), None, "test-admin")
         .await
@@ -425,13 +488,31 @@ async fn extend_expiration_invalidates_cache_on_set_and_on_clear() {
         evictions[1],
         ("klab_ext".to_string(), "dev-ext".to_string())
     );
+
+    let events = audit.events.lock().await;
+    assert_eq!(events.len(), 2, "set and clear both emit events");
+    assert!(matches!(
+        &events[0],
+        DomainEvent::KeyExpirationExtended {
+            new_expiry: Some(_),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &events[1],
+        DomainEvent::KeyExpirationExtended {
+            new_expiry: None,
+            ..
+        }
+    ));
 }
 
 #[tokio::test]
 async fn extend_expiration_does_not_touch_cache_on_unknown_id() {
     let repo = Arc::new(FakeRepo::default());
     let cache = Arc::new(FakeCache::default());
-    let extend = ExtendExpiration::new(repo.clone(), cache.clone());
+    let audit = Arc::new(FakeAudit::default());
+    let extend = ExtendExpiration::new(repo.clone(), cache.clone(), audit.clone());
 
     let ok = extend
         .execute(IssuedKeyId::new(9_999), Some(Utc::now()), "test-admin")
@@ -440,4 +521,5 @@ async fn extend_expiration_does_not_touch_cache_on_unknown_id() {
 
     assert!(!ok);
     assert!(cache.invalidations.lock().await.is_empty());
+    assert!(audit.events.lock().await.is_empty());
 }
