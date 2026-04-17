@@ -2,8 +2,8 @@
 
 - Plan: `/root/.claude/plans/use-razif-coding-style-audit-current-velvet-lampson.md`
 - Started: 2026-04-17
-- Current phase: 3 (end)
-- Next commit: 4.1
+- Current phase: 4
+- Next commit: 4.2
 
 ## Checklist
 
@@ -38,7 +38,7 @@
 - [x] 3.4  tec: outbox adapter publishes domain events to audit_log
 
 ### Phase 4 — admin auth hardening
-- [ ] 4.1  feat: admin password verified against argon2id hash
+- [x] 4.1  feat: admin password verified against argon2id hash
 - [ ] 4.2  feat: admin login uses constant-time compare
 - [ ] 4.3  feat: per-IP sliding-window lockout after 5 failed logins
 - [ ] 4.4  tec: session cookie honours COOKIE_SECURE in prod
@@ -96,6 +96,8 @@
 - 3.1  2026-04-17 — `migrations/004_unique_key_device.sql` closes B10. The migration first dedups any ambient duplicate `(key, device_id)` pairs (keeps the most recent `id`, drops the rest — matches "last write wins" admin mental model) and then creates `idx_auth_keys_key_device_unique`. The `IssuedKey` aggregate already addresses rows by this tuple (`find` / `consume_quota` / `revoke_key`), so the constraint is a database-level guarantee of an invariant the domain has always assumed. Two new tests in `tests/schema_constraints.rs` pin the constraint: duplicate `(key, device_id)` is rejected with an error mentioning the index name; the same `key` with different `device_id` is still permitted (FREE_TRIAL and pre-issued rows need this). 112 rust tests across 9 suites green.
 - 3.2  2026-04-17 — **no new migration** — 3.1's `idx_auth_keys_key_device_unique` already serves as the hot-path composite btree. Postgres's query planner treats a unique btree identically to a plain composite btree for equality lookups on `(key, device_id)`, so adding a second index would be duplication. Closes B11 as a consequence of 3.1.
 - 3.3  2026-04-17 — `migrations/005_audit_log.sql` adds the durable `audit_log` table (`id`, `event_type`, `aggregate_id`, `actor`, `payload JSONB`, `occurred_at`). Two indexes cover the expected dashboards: `idx_audit_log_occurred_at` (recent-first scrolling) and a partial `idx_audit_log_aggregate` on `(aggregate_id, occurred_at DESC) WHERE aggregate_id IS NOT NULL` (per-key history). Payload is JSONB so 3.4 can evolve the shape without another migration. No code changes yet — 3.4 wires the outbox adapter that writes rows from the use-case layer.
+- P3-e2e 2026-04-17 — Phase 3 boundary `make e2e`: 77/77 green (53 chromium + 10 api + 14 webkit smoke). Migrations 004 + 005 apply cleanly on the e2e database; admin flows emit the past-tense log lines from the use-case layer; `/v1/auth` envelope unchanged.
+- 4.1  2026-04-17 — new `src/domain/admin_access/admin_credentials.rs` — `AdminCredentials` value object with dual-path `CredentialFlavour::Hashed(String)` (argon2id PHC) / `Plaintext(String)` (dev/e2e fallback). `from_hash` fails closed on a malformed PHC (deploy-time mistake); `from_plaintext` rejects empty and logs `warn!` at construction so the insecure posture is visible at boot. `verify` uses `argon2::Argon2::default().verify_password` on the hashed branch and `subtle::ConstantTimeEq` on the plaintext branch — constant-time in both. Manual `Debug` impl redacts the secret. 8 unit tests pin: accept/reject for both flavours, reject gibberish PHC, reject empty plaintext, length-independent ct_eq, `is_plaintext_fallback` only true on the fallback. New `src/infrastructure/hashing/argon2_hasher.rs` + `src/bin/hash_admin_password.rs` — `make hash-admin-password PASSWORD=...` generates a fresh salt and prints a PHC string for operators to paste into `ADMIN_PASSWORD_HASH`. `src/auth.rs::login` no longer does `password == env` — it constructs `AdminCredentials` via the new `load_admin_credentials` helper (prefer `ADMIN_PASSWORD_HASH`, fall back to `ADMIN_PASSWORD`; invalid hash fails closed without silent plaintext fallback). `.env.example` documents the precedence; `docker-compose.yml` passes `ADMIN_PASSWORD_HASH` through. Deps: `argon2 = 0.5`, `password-hash = 0.5` (alloc), `subtle = 2` — all gated to `ssr`. New `[[bin]] hash-admin-password` in `Cargo.toml`. 130 rust tests across 10 binaries green.
 - 3.4  746030c 2026-04-17 — new `src/domain/authentication/{events,audit_event_port}.rs` define `DomainEvent` (flat primitives, past-tense variants for every admin verb — `KeyIssued`, `KeyRevoked`, `DeviceReassigned`, `RateLimitReset`, `KeyExpirationExtended`) and the `AuditEventPort` trait. New `src/infrastructure/postgres/audit_event_repository.rs` (`PostgresAuditEventRepository`) writes one row per event to `audit_log`, encoding event-specific fields into the JSONB payload. The adapter is deliberately fire-and-forget: a failed insert is logged at `warn!` but never bubbles back — auditing must not fail the witnessed operation. All five admin verb use cases take `Arc<dyn AuditEventPort>` and publish after repository success (no event on unknown ids — events record facts that changed state). `main.rs` constructs `Arc<dyn AuditEventPort>` alongside the repo + cache ports and injects it into each use case. Tests: +1 FakeAudit in `tests/key_management_use_cases.rs` with assertions that every verb emits the right event and unknown-id paths emit none; new `tests/postgres_audit_event_repository.rs` (6 tests) round-trips every variant through JSONB and covers the closed-pool fire-and-forget path. `tests/common/db.rs::reset` also truncates `audit_log`. 120 rust tests across 9 suites green.
 
 ## Blockers

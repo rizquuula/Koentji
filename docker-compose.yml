@@ -9,6 +9,7 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgres://koentji:koentji@db:5432/koentjilab}
       - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string-at-least-64-bytes-long}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - FREE_TRIAL_KEY=${FREE_TRIAL_KEY:-FREE_TRIAL}
       - AUTH_CACHE_TTL_SECONDS=${AUTH_CACHE_TTL_SECONDS:-900}

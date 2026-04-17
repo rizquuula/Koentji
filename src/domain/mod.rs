@@ -19,6 +19,7 @@
 //! `SubscriptionName`. Nothing is wired into the HTTP path yet — that's
 //! 1.6. This commit just makes the vocabulary exist.
 
+pub mod admin_access;
 pub mod authentication;
 pub mod errors;
 

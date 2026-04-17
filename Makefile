@@ -1,4 +1,4 @@
-.PHONY: help dev run build fmt fmt-check clippy test check clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs docker-pull tailwind e2e e2e-install refactor-status refactor-next
+.PHONY: help dev run build fmt fmt-check clippy test check clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs docker-pull tailwind e2e e2e-install refactor-status refactor-next hash-admin-password
 
 -include .env
 export
@@ -88,6 +88,14 @@ e2e-install: ## Install Playwright browsers and dependencies
 
 e2e: ## Run Playwright end-to-end test suite
 	cd end2end && npx playwright test
+
+## Admin access
+hash-admin-password: ## Print an argon2id PHC hash for ADMIN_PASSWORD_HASH (pass PASSWORD=...)
+	@if [ -z "$(PASSWORD)" ]; then \
+		echo "usage: make hash-admin-password PASSWORD=yourpassword" >&2; \
+		exit 1; \
+	fi
+	@cargo run --quiet --features ssr --bin hash-admin-password -- "$(PASSWORD)"
 
 ## Refactor progress (staged DDD remediation)
 refactor-status: ## Show staged refactor progress

@@ -9,4 +9,5 @@
 #![cfg(feature = "ssr")]
 
 pub mod cache;
+pub mod hashing;
 pub mod postgres;
