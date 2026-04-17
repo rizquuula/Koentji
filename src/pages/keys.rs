@@ -69,17 +69,31 @@ pub fn KeysPage() -> impl IntoView {
         }
     };
 
-    // Debounced search
+    // Debounced search — one cancellable timer reused across keystrokes.
+    // The previous incarnation scheduled a fresh `set_timeout` on every
+    // input event without cancelling the prior one, so five rapid keys
+    // fired five `search.set(...)` calls 300ms apart, each triggering a
+    // resource refetch. Keeping the pending handle in a StoredValue and
+    // clearing it before re-scheduling collapses N timers back to one.
     let search_input = RwSignal::new(String::new());
-    Effect::new(move || {
+    let pending_debounce = StoredValue::new(None::<leptos::prelude::TimeoutHandle>);
+    Effect::new(move |_| {
         let val = search_input.get();
-        set_timeout(
+        pending_debounce.update_value(|slot| {
+            if let Some(handle) = slot.take() {
+                handle.clear();
+            }
+        });
+        let handle = set_timeout_with_handle(
             move || {
                 search.set(val);
                 page.set(1);
             },
             std::time::Duration::from_millis(300),
         );
+        if let Ok(handle) = handle {
+            pending_debounce.set_value(Some(handle));
+        }
     });
 
     view! {
