@@ -2,6 +2,7 @@
 name = "koentji"
 version = "0.1.4"
 edition = "2021"
+default-run = "koentji"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
