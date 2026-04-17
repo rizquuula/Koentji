@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 
+use crate::components::design::{Button, ButtonType, ButtonVariant, Input, Stack};
 use crate::components::layout::Layout;
 use crate::components::modal::{ConfirmModal, Modal};
 use crate::components::toast::use_toast;
@@ -286,57 +287,42 @@ fn RateLimitIntervalForm(
     };
 
     view! {
-        <form on:submit=handle_submit class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Name *"</label>
-                <input
-                    type="text"
-                    required
-                    placeholder="e.g. 3_hourly"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    prop:value=move || name.get()
-                    on:input=move |ev| name.set(event_target_value(&ev))
-                />
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Display Name *"</label>
-                <input
-                    type="text"
-                    required
-                    placeholder="e.g. 3 Hourly"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    prop:value=move || display_name.get()
-                    on:input=move |ev| display_name.set(event_target_value(&ev))
-                />
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Duration (seconds) *"</label>
-                <input
-                    type="number"
-                    required
-                    min="1"
-                    placeholder="e.g. 10800"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    prop:value=move || duration_seconds.get()
-                    on:input=move |ev| duration_seconds.set(event_target_value(&ev))
-                />
-            </div>
-            <div class="flex justify-end space-x-3 pt-4 border-t">
-                <button
-                    type="button"
-                    class="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                    on:click=move |_| on_cancel.run(())
-                >
-                    "Cancel"
-                </button>
-                <button
-                    type="submit"
-                    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                    disabled=move || submitting.get()
-                >
-                    {move || if is_editing() { "Update" } else { "Create" }}
-                </button>
-            </div>
+        <form on:submit=handle_submit>
+            <Stack>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Name *"</label>
+                    <Input value=name required=true placeholder="e.g. 3_hourly" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Display Name *"</label>
+                    <Input value=display_name required=true placeholder="e.g. 3 Hourly" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Duration (seconds) *"</label>
+                    <Input
+                        value=duration_seconds
+                        required=true
+                        input_type="number"
+                        min="1"
+                        placeholder="e.g. 10800"
+                    />
+                </div>
+                <div class="flex justify-end space-x-3 pt-4 border-t">
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        on_click=Callback::new(move |_| on_cancel.run(()))
+                    >
+                        "Cancel"
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        button_type=ButtonType::Submit
+                        disabled=Signal::derive(move || submitting.get())
+                    >
+                        {move || if is_editing() { "Update" } else { "Create" }}
+                    </Button>
+                </div>
+            </Stack>
         </form>
     }
 }

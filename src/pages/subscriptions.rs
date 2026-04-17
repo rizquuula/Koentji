@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 
+use crate::components::design::{Button, ButtonType, ButtonVariant, Input, Select, Stack};
 use crate::components::layout::Layout;
 use crate::components::modal::{ConfirmModal, Modal};
 use crate::components::toast::use_toast;
@@ -293,84 +294,59 @@ fn SubscriptionForm(
     };
 
     view! {
-        <form on:submit=handle_submit class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Name *"</label>
-                <input
-                    type="text"
-                    required
-                    placeholder="e.g. basic"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    prop:value=move || name.get()
-                    on:input=move |ev| name.set(event_target_value(&ev))
-                />
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Display Name *"</label>
-                <input
-                    type="text"
-                    required
-                    placeholder="e.g. Basic"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    prop:value=move || display_name.get()
-                    on:input=move |ev| display_name.set(event_target_value(&ev))
-                />
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Rate Limit Amount *"</label>
-                <input
-                    type="number"
-                    required
-                    min="1"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    prop:value=move || rate_limit_amount.get()
-                    on:input=move |ev| rate_limit_amount.set(event_target_value(&ev))
-                />
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Rate Limit Interval *"</label>
-                <Suspense fallback=|| view! { <span class="text-gray-400">"Loading intervals..."</span> }>
-                    {move || intervals_resource.get().map(|result| {
-                        match result {
-                            Ok(intervals) => view! {
-                                <select
-                                    required
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    prop:value=move || rate_limit_interval_id.get()
-                                    on:change=move |ev| rate_limit_interval_id.set(event_target_value(&ev))
-                                >
-                                    <option value="">"Select interval..."</option>
-                                    {intervals.into_iter().map(|interval| {
-                                        let val = interval.id.to_string();
-                                        view! {
-                                            <option value=val>{interval.display_name}</option>
-                                        }
-                                    }).collect::<Vec<_>>()}
-                                </select>
-                            }.into_any(),
-                            Err(_) => view! {
-                                <span class="text-red-500">"Failed to load intervals"</span>
-                            }.into_any(),
-                        }
-                    })}
-                </Suspense>
-            </div>
-            <div class="flex justify-end space-x-3 pt-4 border-t">
-                <button
-                    type="button"
-                    class="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                    on:click=move |_| on_cancel.run(())
-                >
-                    "Cancel"
-                </button>
-                <button
-                    type="submit"
-                    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                    disabled=move || submitting.get()
-                >
-                    {move || if is_editing() { "Update" } else { "Create" }}
-                </button>
-            </div>
+        <form on:submit=handle_submit>
+            <Stack>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Name *"</label>
+                    <Input value=name required=true placeholder="e.g. basic" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Display Name *"</label>
+                    <Input value=display_name required=true placeholder="e.g. Basic" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Rate Limit Amount *"</label>
+                    <Input value=rate_limit_amount required=true input_type="number" min="1" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Rate Limit Interval *"</label>
+                    <Suspense fallback=|| view! { <span class="text-ink-disabled">"Loading intervals..."</span> }>
+                        {move || intervals_resource.get().map(|result| {
+                            match result {
+                                Ok(intervals) => view! {
+                                    <Select value=rate_limit_interval_id required=true>
+                                        <option value="">"Select interval..."</option>
+                                        {intervals.into_iter().map(|interval| {
+                                            let val = interval.id.to_string();
+                                            view! {
+                                                <option value=val>{interval.display_name}</option>
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    </Select>
+                                }.into_any(),
+                                Err(_) => view! {
+                                    <span class="text-feedback-danger">"Failed to load intervals"</span>
+                                }.into_any(),
+                            }
+                        })}
+                    </Suspense>
+                </div>
+                <div class="flex justify-end space-x-3 pt-4 border-t">
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        on_click=Callback::new(move |_| on_cancel.run(()))
+                    >
+                        "Cancel"
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        button_type=ButtonType::Submit
+                        disabled=Signal::derive(move || submitting.get())
+                    >
+                        {move || if is_editing() { "Update" } else { "Create" }}
+                    </Button>
+                </div>
+            </Stack>
         </form>
     }
 }

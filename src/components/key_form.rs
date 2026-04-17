@@ -1,3 +1,4 @@
+use crate::components::design::{Button, ButtonType, ButtonVariant, Input, Stack};
 use crate::models::{AuthenticationKey, CreateKeyRequest, UpdateKeyRequest};
 use crate::server::subscription_service::list_subscription_types;
 use leptos::prelude::*;
@@ -113,115 +114,97 @@ pub fn KeyForm(
         });
     };
 
+    // The subscription <select> cannot use the plain `Select` primitive —
+    // selecting a subscription also back-fills the rate-limit field, which
+    // is domain coupling that doesn't belong inside a generic Select.
+    let readonly_rate = Signal::derive(move || !is_editing);
+
     view! {
-        <form on:submit=handle_submit class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Device ID *"</label>
-                <input
-                    type="text"
-                    required
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    prop:value=move || device_id.get()
-                    on:input=move |ev| device_id.set(event_target_value(&ev))
-                />
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Username"</label>
-                <input
-                    type="text"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    prop:value=move || username.get()
-                    on:input=move |ev| username.set(event_target_value(&ev))
-                />
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Email"</label>
-                <input
-                    type="email"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    prop:value=move || email.get()
-                    on:input=move |ev| email.set(event_target_value(&ev))
-                />
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Subscription"</label>
-                <Suspense fallback=|| view! { <span class="text-gray-400">"Loading..."</span> }>
-                    {move || subs_resource.get().map(|result| {
-                        match result {
-                            Ok(subs) => {
-                                // When subscription changes, auto-fill rate limit
-                                let subs_for_change = subs.clone();
-                                let on_sub_change = move |ev: leptos::ev::Event| {
-                                    let val = event_target_value(&ev);
-                                    subscription_type_id.set(val.clone());
-                                    if let Ok(id) = val.parse::<i32>() {
-                                        if let Some(sub) = subs_for_change.iter().find(|s| s.id == id) {
-                                            rate_limit.set(sub.rate_limit_amount.to_string());
-                                        }
-                                    }
-                                };
-                                view! {
-                                    <select
-                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                        prop:value=move || subscription_type_id.get()
-                                        on:change=on_sub_change
-                                    >
-                                        <option value="">"Select..."</option>
-                                        {subs.into_iter().map(|sub| {
-                                            let val = sub.id.to_string();
-                                            view! {
-                                                <option value=val>{sub.display_name}</option>
+        <form on:submit=handle_submit>
+            <Stack>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Device ID *"</label>
+                    <Input value=device_id required=true />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Username"</label>
+                    <Input value=username />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Email"</label>
+                    <Input value=email input_type="email" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Subscription"</label>
+                    <Suspense fallback=|| view! { <span class="text-ink-disabled">"Loading..."</span> }>
+                        {move || subs_resource.get().map(|result| {
+                            match result {
+                                Ok(subs) => {
+                                    let subs_for_change = subs.clone();
+                                    let on_sub_change = move |ev: leptos::ev::Event| {
+                                        let val = event_target_value(&ev);
+                                        subscription_type_id.set(val.clone());
+                                        if let Ok(id) = val.parse::<i32>() {
+                                            if let Some(sub) = subs_for_change.iter().find(|s| s.id == id) {
+                                                rate_limit.set(sub.rate_limit_amount.to_string());
                                             }
-                                        }).collect::<Vec<_>>()}
-                                    </select>
-                                }.into_any()
-                            },
-                            Err(_) => view! {
-                                <span class="text-red-500">"Failed to load subscriptions"</span>
-                            }.into_any(),
-                        }
-                    })}
-                </Suspense>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Rate Limit"</label>
-                <input
-                    type="number"
-                    min="0"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed"
-                    prop:value=move || rate_limit.get()
-                    readonly=move || !is_editing
-                    on:input=move |ev| { if is_editing { rate_limit.set(event_target_value(&ev)) } }
-                />
-                <p class="text-xs text-gray-400 mt-1">
-                    {if is_editing { "Override rate limit if needed." } else { "Determined by subscription." }}
-                </p>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">"Expiration Date"</label>
-                <input
-                    type="datetime-local"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    prop:value=move || expired_at.get()
-                    on:input=move |ev| expired_at.set(event_target_value(&ev))
-                />
-            </div>
-            <div class="flex justify-end space-x-3 pt-4 border-t">
-                <button
-                    type="button"
-                    class="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                    on:click=move |_| on_cancel.run(())
-                >
-                    "Cancel"
-                </button>
-                <button
-                    type="submit"
-                    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                    disabled=move || submitting.get()
-                >
-                    {if is_editing { "Update Key" } else { "Create Key" }}
-                </button>
-            </div>
+                                        }
+                                    };
+                                    view! {
+                                        <select
+                                            class="w-full px-3 py-2 border border-surface-strong rounded-control focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                                            prop:value=move || subscription_type_id.get()
+                                            on:change=on_sub_change
+                                        >
+                                            <option value="">"Select..."</option>
+                                            {subs.into_iter().map(|sub| {
+                                                let val = sub.id.to_string();
+                                                view! {
+                                                    <option value=val>{sub.display_name}</option>
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                        </select>
+                                    }.into_any()
+                                },
+                                Err(_) => view! {
+                                    <span class="text-feedback-danger">"Failed to load subscriptions"</span>
+                                }.into_any(),
+                            }
+                        })}
+                    </Suspense>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Rate Limit"</label>
+                    <Input
+                        value=rate_limit
+                        input_type="number"
+                        min="0"
+                        readonly=readonly_rate
+                    />
+                    <p class="text-xs text-ink-disabled mt-1">
+                        {if is_editing { "Override rate limit if needed." } else { "Determined by subscription." }}
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-ink-body mb-1">"Expiration Date"</label>
+                    <Input value=expired_at input_type="datetime-local" />
+                </div>
+                <div class="flex justify-end space-x-3 pt-4 border-t">
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        on_click=Callback::new(move |_| on_cancel.run(()))
+                    >
+                        "Cancel"
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        button_type=ButtonType::Submit
+                        disabled=Signal::derive(move || submitting.get())
+                    >
+                        {if is_editing { "Update Key" } else { "Create Key" }}
+                    </Button>
+                </div>
+            </Stack>
         </form>
     }
 }
