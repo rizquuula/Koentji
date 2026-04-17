@@ -56,7 +56,7 @@ async fn main() -> std::io::Result<()> {
     use koentji::infrastructure::postgres::{
         PostgresAuditEventRepository, PostgresIssuedKeyRepository,
     };
-    use koentji::infrastructure::telemetry::AccessLog;
+    use koentji::infrastructure::telemetry::{AccessLog, RequestIdMiddleware};
 
     dotenvy::dotenv().ok();
     env_logger::init();
@@ -192,11 +192,13 @@ async fn main() -> std::io::Result<()> {
                     )
                     .build(),
             )
-            // AccessLog wraps outermost so every request — including
-            // those that fail auth or never reach a handler — produces
-            // a line. Actix runs wraps in reverse order, so the last
-            // `.wrap` added runs first on request / last on response.
+            // AccessLog sits above Session so every request — including
+            // auth-failed ones — produces a line. Actix runs wraps in
+            // reverse order (last `.wrap` runs first on request), so
+            // RequestIdMiddleware must be added *after* AccessLog to
+            // set the extension before AccessLog reads it.
             .wrap(AccessLog)
+            .wrap(RequestIdMiddleware)
             .app_data(web::Data::new(pool))
             .service(Files::new("/pkg", format!("{site_root}/pkg")))
             .service(Files::new("/assets", &site_root))

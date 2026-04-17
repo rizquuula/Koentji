@@ -21,7 +21,10 @@ use std::time::Instant;
 use actix_web::body::{BoxBody, MessageBody};
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::Error;
+use actix_web::HttpMessage;
 use serde::Serialize;
+
+use super::request_id::RequestId;
 
 /// Install with `.wrap(AccessLog)` on the top-level Actix app.
 #[derive(Clone, Copy, Default)]
@@ -51,6 +54,8 @@ pub struct AccessLogMiddleware<S> {
 #[derive(Serialize)]
 struct AccessLogLine<'a> {
     ts: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_id: Option<&'a str>,
     remote: &'a str,
     method: &'a str,
     path: &'a str,
@@ -96,6 +101,7 @@ where
             .get(actix_web::http::header::USER_AGENT)
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
+        let request_id = req.extensions().get::<RequestId>().map(|r| r.to_string());
 
         let fut = self.service.call(req);
 
@@ -111,6 +117,7 @@ where
 
             let line = AccessLogLine {
                 ts: chrono::Utc::now().to_rfc3339(),
+                request_id: request_id.as_deref(),
                 remote: &remote,
                 method: method.as_str(),
                 path: &path,
@@ -173,6 +180,7 @@ mod tests {
         // silently break downstream log parsers.
         let line = AccessLogLine {
             ts: "2026-04-17T12:00:00Z".to_string(),
+            request_id: Some("01932e45-7890-7abc-8def-0123456789ab"),
             remote: "1.2.3.4",
             method: "POST",
             path: "/v1/auth",
@@ -185,8 +193,9 @@ mod tests {
         let json = serde_json::to_string(&line).unwrap();
         assert!(json.starts_with('{'));
         assert!(!json.contains('\n'));
-        // Only the `user_agent` optional field should appear —
-        // `referer` is None and skip_serializing_if trims it.
+        // Only the `user_agent` + `request_id` optional fields should
+        // appear — `referer` is None and skip_serializing_if trims it.
+        assert!(json.contains("\"request_id\":\"01932e45-7890-7abc-8def-0123456789ab\""));
         assert!(json.contains("\"user_agent\":\"curl/8.0\""));
         assert!(!json.contains("\"referer\""));
     }

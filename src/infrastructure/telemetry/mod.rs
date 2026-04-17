@@ -6,5 +6,7 @@
 #![cfg(feature = "ssr")]
 
 pub mod access_log;
+pub mod request_id;
 
 pub use access_log::AccessLog;
+pub use request_id::{RequestId, RequestIdMiddleware};
