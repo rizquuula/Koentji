@@ -162,4 +162,44 @@ pub trait IssuedKeyRepository: Send + Sync {
         id: super::issued_key::IssuedKeyId,
         revoked_by: &str,
     ) -> Result<Option<(AuthKey, DeviceId)>, RepositoryError>;
+
+    /// Admin command — move `id`'s device from its current value to
+    /// `new_device`. Returns both the previous and the current device
+    /// so the use case can evict the *old* `(key, previous_device)`
+    /// cache entry (the new one isn't populated until the next auth).
+    async fn reassign_device(
+        &self,
+        id: super::issued_key::IssuedKeyId,
+        new_device: &DeviceId,
+        updated_by: &str,
+    ) -> Result<Option<DeviceReassignment>, RepositoryError>;
+
+    /// Admin command — restore the full daily quota and stamp the
+    /// window's `rate_limit_updated_at`.
+    async fn reset_rate_limit(
+        &self,
+        id: super::issued_key::IssuedKeyId,
+        now: DateTime<Utc>,
+        updated_by: &str,
+    ) -> Result<Option<(AuthKey, DeviceId)>, RepositoryError>;
+
+    /// Admin command — set `expired_at` to `new_expiry` (or clear it
+    /// with `None`). `updated_by` is stamped for the audit trail.
+    async fn extend_expiration(
+        &self,
+        id: super::issued_key::IssuedKeyId,
+        new_expiry: Option<DateTime<Utc>>,
+        updated_by: &str,
+    ) -> Result<Option<(AuthKey, DeviceId)>, RepositoryError>;
+}
+
+/// Outcome of a successful `reassign_device`. The previous device is
+/// what the cache is keyed on *before* the move; the current device is
+/// what the aggregate now holds. The use case invalidates both, because
+/// concurrent reads might still be racing with either key.
+#[derive(Debug, Clone)]
+pub struct DeviceReassignment {
+    pub key: AuthKey,
+    pub previous_device: DeviceId,
+    pub current_device: DeviceId,
 }

@@ -26,9 +26,9 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
 use crate::domain::authentication::{
-    AuthKey, ConsumeOutcome, DeviceId, FreeTrialConfig, IssueKeyCommand, IssuedKey, IssuedKeyId,
-    IssuedKeyRepository, RateLimitAmount, RateLimitLedger, RateLimitUsage, RateLimitWindow,
-    RepositoryError, SubscriptionName,
+    AuthKey, ConsumeOutcome, DeviceId, DeviceReassignment, FreeTrialConfig, IssueKeyCommand,
+    IssuedKey, IssuedKeyId, IssuedKeyRepository, RateLimitAmount, RateLimitLedger, RateLimitUsage,
+    RateLimitWindow, RepositoryError, SubscriptionName,
 };
 use crate::domain::errors::DomainError;
 
@@ -293,6 +293,140 @@ impl IssuedKeyRepository for PostgresIssuedKeyRepository {
                     RepositoryError::Backend(format!("inserted key id={} vanished", id))
                 })
             })
+    }
+
+    async fn reassign_device(
+        &self,
+        id: IssuedKeyId,
+        new_device: &DeviceId,
+        updated_by: &str,
+    ) -> Result<Option<DeviceReassignment>, RepositoryError> {
+        let backend = |e: sqlx::Error| RepositoryError::Backend(e.to_string());
+
+        // CTE snapshots the previous `device_id` in the same statement
+        // so the UPDATE and the cache-eviction path see a consistent
+        // pair — no second round-trip, no race.
+        let row: Option<(String, String, String)> = sqlx::query_as(
+            r#"WITH previous AS (
+                   SELECT id, device_id AS previous_device
+                   FROM authentication_keys
+                   WHERE id = $1
+               )
+               UPDATE authentication_keys ak
+               SET device_id = $2,
+                   updated_by = $3,
+                   updated_at = NOW()
+               FROM previous p
+               WHERE ak.id = p.id
+               RETURNING ak.key, p.previous_device, ak.device_id"#,
+        )
+        .bind(id.value())
+        .bind(new_device.as_str())
+        .bind(updated_by)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(backend)?;
+
+        match row {
+            Some((raw_key, raw_prev, raw_curr)) => {
+                let key = AuthKey::parse(raw_key).map_err(domain_to_backend)?;
+                let previous_device = DeviceId::parse(raw_prev).map_err(domain_to_backend)?;
+                let current_device = DeviceId::parse(raw_curr).map_err(domain_to_backend)?;
+                log::info!(
+                    "DeviceReassigned: id={}, previous={}, current={}, updated_by={}",
+                    id.value(),
+                    previous_device.as_str(),
+                    current_device.as_str(),
+                    updated_by
+                );
+                Ok(Some(DeviceReassignment {
+                    key,
+                    previous_device,
+                    current_device,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn reset_rate_limit(
+        &self,
+        id: IssuedKeyId,
+        now: DateTime<Utc>,
+        updated_by: &str,
+    ) -> Result<Option<(AuthKey, DeviceId)>, RepositoryError> {
+        let backend = |e: sqlx::Error| RepositoryError::Backend(e.to_string());
+
+        let row: Option<(String, String)> = sqlx::query_as(
+            r#"UPDATE authentication_keys
+               SET rate_limit_remaining = rate_limit_daily,
+                   rate_limit_updated_at = $2,
+                   updated_by = $3,
+                   updated_at = NOW()
+               WHERE id = $1
+               RETURNING key, device_id"#,
+        )
+        .bind(id.value())
+        .bind(now)
+        .bind(updated_by)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(backend)?;
+
+        match row {
+            Some((raw_key, raw_device)) => {
+                let key = AuthKey::parse(raw_key).map_err(domain_to_backend)?;
+                let device = DeviceId::parse(raw_device).map_err(domain_to_backend)?;
+                log::info!(
+                    "RateLimitReset: id={}, device={}, updated_by={}",
+                    id.value(),
+                    device.as_str(),
+                    updated_by
+                );
+                Ok(Some((key, device)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn extend_expiration(
+        &self,
+        id: IssuedKeyId,
+        new_expiry: Option<DateTime<Utc>>,
+        updated_by: &str,
+    ) -> Result<Option<(AuthKey, DeviceId)>, RepositoryError> {
+        let backend = |e: sqlx::Error| RepositoryError::Backend(e.to_string());
+
+        let row: Option<(String, String)> = sqlx::query_as(
+            r#"UPDATE authentication_keys
+               SET expired_at = $2,
+                   updated_by = $3,
+                   updated_at = NOW()
+               WHERE id = $1
+               RETURNING key, device_id"#,
+        )
+        .bind(id.value())
+        .bind(new_expiry)
+        .bind(updated_by)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(backend)?;
+
+        match row {
+            Some((raw_key, raw_device)) => {
+                let key = AuthKey::parse(raw_key).map_err(domain_to_backend)?;
+                let device = DeviceId::parse(raw_device).map_err(domain_to_backend)?;
+                log::info!(
+                    "KeyExpirationExtended: id={}, device={}, new_expiry={:?}, updated_by={}",
+                    id.value(),
+                    device.as_str(),
+                    new_expiry,
+                    updated_by
+                );
+                Ok(Some((key, device)))
+            }
+            None => Ok(None),
+        }
     }
 
     async fn revoke_key(

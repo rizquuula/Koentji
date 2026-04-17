@@ -327,23 +327,20 @@ pub async fn reveal_key(id: i32) -> Result<String, ServerFnError> {
 #[server]
 pub async fn reset_rate_limit(id: i32) -> Result<(), ServerFnError> {
     use leptos_actix::extract;
-    use sqlx::PgPool;
+    use std::sync::Arc;
 
-    let pool = extract::<actix_web::web::Data<PgPool>>().await?;
+    use crate::application::ResetRateLimit;
+    use crate::domain::authentication::IssuedKeyId;
 
-    sqlx::query(
-        "UPDATE authentication_keys SET rate_limit_remaining = rate_limit_daily, rate_limit_updated_at = NOW() WHERE id = $1",
-    )
-    .bind(id)
-    .execute(pool.get_ref())
-    .await
-    .map_err(|e| {
-        log::error!("Failed to reset rate limit for key id={}: {}", id, e);
-        ServerFnError::new(e.to_string())
-    })?;
+    let reset = extract::<actix_web::web::Data<Arc<ResetRateLimit>>>().await?;
 
-    log::info!("Rate limit reset: key id={}", id);
-    invalidate_cache_for_key(pool.get_ref(), id).await;
+    reset
+        .execute(IssuedKeyId::new(id), chrono::Utc::now(), "admin")
+        .await
+        .map_err(|e| {
+            log::error!("Failed to reset rate limit for key id={}: {}", id, e);
+            ServerFnError::new(e.to_string())
+        })?;
 
     Ok(())
 }

@@ -47,7 +47,9 @@ async fn main() -> std::io::Result<()> {
     use leptos_meta::MetaTags;
     use utoipa_swagger_ui::SwaggerUi;
 
-    use koentji::application::{AuthenticateApiKey, IssueKey, RevokeKey};
+    use koentji::application::{
+        AuthenticateApiKey, ExtendExpiration, IssueKey, ReassignDevice, ResetRateLimit, RevokeKey,
+    };
     use koentji::domain::authentication::FreeTrialConfig;
     use koentji::infrastructure::cache::MokaAuthCache;
     use koentji::infrastructure::postgres::PostgresIssuedKeyRepository;
@@ -88,6 +90,18 @@ async fn main() -> std::io::Result<()> {
         issued_key_repo.clone(),
         auth_cache_port.clone(),
     ));
+    let reassign_device = std::sync::Arc::new(ReassignDevice::new(
+        issued_key_repo.clone(),
+        auth_cache_port.clone(),
+    ));
+    let reset_rate_limit = std::sync::Arc::new(ResetRateLimit::new(
+        issued_key_repo.clone(),
+        auth_cache_port.clone(),
+    ));
+    let extend_expiration = std::sync::Arc::new(ExtendExpiration::new(
+        issued_key_repo.clone(),
+        auth_cache_port.clone(),
+    ));
 
     let secret_key = std::env::var("SECRET_KEY").unwrap_or_else(|_| {
         log::warn!("SECRET_KEY not set, using insecure default — set SECRET_KEY in production");
@@ -114,11 +128,17 @@ async fn main() -> std::io::Result<()> {
         let auth_handler = auth_handler.clone();
         let issue_key = issue_key.clone();
         let revoke_key = revoke_key.clone();
+        let reassign_device = reassign_device.clone();
+        let reset_rate_limit = reset_rate_limit.clone();
+        let extend_expiration = extend_expiration.clone();
 
         actix_web::App::new()
             .app_data(web::Data::new(auth_handler))
             .app_data(web::Data::new(issue_key))
             .app_data(web::Data::new(revoke_key))
+            .app_data(web::Data::new(reassign_device))
+            .app_data(web::Data::new(reset_rate_limit))
+            .app_data(web::Data::new(extend_expiration))
             .service(auth_endpoint)
             .service(
                 web::resource("/docs").route(web::get().to(|| async {
