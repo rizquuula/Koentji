@@ -9,7 +9,7 @@ help: ## Show this help
 
 .PHONY: up
 up: ## Start all services in detached mode
-	$(DC) up -d
+	$(DC) up -d --force-recreate
 
 .PHONY: down
 down: ## Stop and remove containers
