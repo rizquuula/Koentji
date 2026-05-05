@@ -1,4 +1,4 @@
-FROM rust:1.90-bookworm AS builder
+FROM rust:1.91-bookworm AS builder
 
 RUN cargo install cargo-binstall --locked
 RUN cargo binstall cargo-leptos --locked --no-confirm
