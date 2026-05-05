@@ -87,16 +87,21 @@ pub async fn auth_endpoint(
         Ok(d) => d,
         Err(_) => return unknown_key_response(),
     };
-    let usage = match RateLimitUsage::new(body.rate_limit_usage) {
-        Ok(u) => u,
-        Err(_) => {
-            // Negative / invalid usage short-circuits to the
-            // rate-limit-exceeded envelope — mirrors the legacy
-            // handler's behaviour when the SQL predicate rejected
-            // the row.
-            return rate_limit_response();
-        }
+    // Coerce non-positive `rate_limit_usage` to 1. Several client SDKs
+    // (Kotlin/Java/Swift/Go) serialise unset numeric fields as `0`; the
+    // domain treats `usage == 0` as a no-op consume, which silently
+    // stops decrementing the ledger while still stamping
+    // `rate_limit_updated_at`. Normalising at the edge keeps the
+    // domain's zero-is-a-no-op invariant intact for any caller that
+    // *deliberately* wants it (none on the wire today) without exposing
+    // the footgun on the public envelope.
+    let normalised_usage = if body.rate_limit_usage < 1 {
+        1
+    } else {
+        body.rate_limit_usage
     };
+    let usage = RateLimitUsage::new(normalised_usage)
+        .expect("normalised usage is always >= 1, never rejected by the value object");
 
     let outcome = handler.execute(key, device, usage, Utc::now()).await;
     match outcome {
@@ -136,16 +141,6 @@ pub async fn auth_endpoint(
 fn unknown_key_response() -> HttpResponse {
     let env = DenialEnvelope::from_reason(&crate::domain::authentication::DenialReason::UnknownKey);
     HttpResponse::build(StatusCode::UNAUTHORIZED).json(serde_json::json!({
-        "error": { "en": env.en, "id": env.id },
-        "message": env.en,
-    }))
-}
-
-fn rate_limit_response() -> HttpResponse {
-    let env = DenialEnvelope::from_reason(
-        &crate::domain::authentication::DenialReason::RateLimitExceeded,
-    );
-    HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).json(serde_json::json!({
         "error": { "en": env.en, "id": env.id },
         "message": env.en,
     }))

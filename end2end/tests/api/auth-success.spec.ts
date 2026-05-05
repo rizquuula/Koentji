@@ -58,4 +58,32 @@ test.describe('POST /v1/auth — success', () => {
     });
     expect(res.status()).toBe(200);
   });
+
+  test('rate_limit_usage = 0 is coerced to 1 and decrements the ledger', async ({ request }) => {
+    const before = await request.post('/v1/auth', {
+      data: { auth_key: KEY, auth_device: DEVICE, rate_limit_usage: 1 },
+    });
+    const beforeRemaining = (await before.json()).data.rate_limit_remaining;
+
+    const res = await request.post('/v1/auth', {
+      data: { auth_key: KEY, auth_device: DEVICE, rate_limit_usage: 0 },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.data.rate_limit_remaining).toBe(beforeRemaining - 1);
+  });
+
+  test('negative rate_limit_usage is coerced to 1 and decrements the ledger', async ({ request }) => {
+    const before = await request.post('/v1/auth', {
+      data: { auth_key: KEY, auth_device: DEVICE, rate_limit_usage: 1 },
+    });
+    const beforeRemaining = (await before.json()).data.rate_limit_remaining;
+
+    const res = await request.post('/v1/auth', {
+      data: { auth_key: KEY, auth_device: DEVICE, rate_limit_usage: -7 },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.data.rate_limit_remaining).toBe(beforeRemaining - 1);
+  });
 });
