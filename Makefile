@@ -1,4 +1,4 @@
-.PHONY: help dev run build fmt fmt-check clippy test check clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs docker-pull tailwind e2e e2e-install refactor-status refactor-next hash-admin-password
+.PHONY: help dev run build fmt fmt-check clippy test test-rust test-e2e test-e2e-install check clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs docker-pull tailwind refactor-status refactor-next hash-admin-password
 
 -include .env
 export
@@ -9,7 +9,7 @@ export
 help: ## Show this help message
 	@echo "Usage: make [target]"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 ## Development
 dev: ## Run dev server with cargo leptos watch
@@ -50,7 +50,8 @@ fmt-check: ## Check formatting without rewriting (CI-safe)
 clippy: ## Run clippy lints (all features, deny warnings)
 	cargo clippy --all-features --tests -- -D warnings
 
-test: ## Run Rust tests with ssr feature enabled
+## Tests
+test-rust: ## Run Rust tests with ssr feature enabled
 	# Integration tests share one Postgres DB and coordinate via
 	# `reset()` — running them in parallel lets a TRUNCATE wipe another
 	# test's rows mid-flight, which in turn flakes the concurrency
@@ -58,7 +59,15 @@ test: ## Run Rust tests with ssr feature enabled
 	# cargo still runs separate binaries sequentially.
 	cargo test --features ssr -- --test-threads=1
 
-check: fmt-check clippy test ## fmt --check + clippy -D warnings + cargo test (safety gate)
+test-e2e-install: ## Install Playwright browsers and dependencies
+	cd end2end && npm install && npx playwright install --with-deps chromium
+
+test-e2e: ## Run Playwright end-to-end test suite
+	cd end2end && npx playwright test
+
+test: test-rust test-e2e ## Run all tests (Rust + Playwright)
+
+check: fmt-check clippy test-rust ## fmt --check + clippy -D warnings + cargo test (safety gate)
 
 clean: ## Clean build artifacts
 	cargo clean
@@ -81,13 +90,6 @@ docker-logs: ## Tail logs for all containers (or pass s=service to filter)
 
 docker-pull: ## Pull latest Docker images
 	docker compose pull
-
-## End-to-end tests
-e2e-install: ## Install Playwright browsers and dependencies
-	cd end2end && npm install && npx playwright install --with-deps chromium
-
-e2e: ## Run Playwright end-to-end test suite
-	cd end2end && npx playwright test
 
 ## Admin access
 hash-admin-password: ## Print an argon2id PHC hash for ADMIN_PASSWORD_HASH (pass PASSWORD=...)
