@@ -8,6 +8,10 @@ use koentji::interface::http::auth_endpoint::{
     auth_endpoint, AuthError, AuthRequest, AuthResponse, AuthResponseData,
 };
 #[cfg(feature = "ssr")]
+use koentji::interface::http::auth_v2_endpoint::{
+    auth_v2_endpoint, AuthV2Error, AuthV2Request, AuthV2Response, AuthV2ResponseData,
+};
+#[cfg(feature = "ssr")]
 use koentji::interface::http::health::{healthz, readyz};
 
 #[cfg(feature = "ssr")]
@@ -18,8 +22,20 @@ use koentji::interface::http::health::{healthz, readyz};
         version = "1.0.0",
         description = "Public API for authenticating Koentji API keys"
     ),
-    paths(koentji::interface::http::auth_endpoint::auth_endpoint),
-    components(schemas(AuthRequest, AuthResponse, AuthResponseData, AuthError))
+    paths(
+        koentji::interface::http::auth_endpoint::auth_endpoint,
+        koentji::interface::http::auth_v2_endpoint::auth_v2_endpoint,
+    ),
+    components(schemas(
+        AuthRequest,
+        AuthResponse,
+        AuthResponseData,
+        AuthError,
+        AuthV2Request,
+        AuthV2Response,
+        AuthV2ResponseData,
+        AuthV2Error,
+    ))
 )]
 struct ApiDoc;
 
@@ -197,6 +213,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(cache_port_data))
             .app_data(web::Data::new(login_ledger))
             .service(auth_endpoint)
+            .service(auth_v2_endpoint)
             .service(healthz)
             .service(readyz)
             .service(
