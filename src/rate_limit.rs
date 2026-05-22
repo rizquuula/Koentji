@@ -32,7 +32,7 @@ pub enum ConsumeResult {
     /// Quota was available (or the window had elapsed and was reset).
     /// `remaining` is the post-decrement count.
     Allowed {
-        remaining: i32,
+        remaining: f64,
         updated_at: DateTime<Utc>,
     },
     /// No rows matched the consume predicate — the window is still open
@@ -56,10 +56,10 @@ pub async fn consume_rate_limit(
     pool: &PgPool,
     key: &str,
     device_id: &str,
-    usage: i32,
+    usage: f64,
     now: DateTime<Utc>,
 ) -> Result<ConsumeResult, sqlx::Error> {
-    let row: Option<(i32, DateTime<Utc>)> = sqlx::query_as(
+    let row: Option<(f64, DateTime<Utc>)> = sqlx::query_as(
         r#"
         UPDATE authentication_keys ak
         SET
@@ -70,8 +70,8 @@ pub async fn consume_rate_limit(
                             (SELECT duration_seconds FROM rate_limit_intervals
                              WHERE id = ak.rate_limit_interval_id),
                             86400)
-                THEN ak.rate_limit_daily - $2::int
-                ELSE ak.rate_limit_remaining - $2::int
+                THEN ak.rate_limit_daily - $2::double precision
+                ELSE ak.rate_limit_remaining - $2::double precision
             END,
             rate_limit_updated_at = $1::timestamptz
         WHERE ak.key = $3
@@ -83,9 +83,9 @@ pub async fn consume_rate_limit(
                         (SELECT duration_seconds FROM rate_limit_intervals
                          WHERE id = ak.rate_limit_interval_id),
                         86400)
-              OR ak.rate_limit_remaining >= $2::int
+              OR ak.rate_limit_remaining >= $2::double precision
           )
-          AND ak.rate_limit_daily >= $2::int
+          AND ak.rate_limit_daily >= $2::double precision
         RETURNING ak.rate_limit_remaining, ak.rate_limit_updated_at
         "#,
     )

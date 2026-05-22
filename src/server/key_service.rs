@@ -121,14 +121,14 @@ pub async fn create_key(req: CreateKeyRequest) -> Result<AuthenticationKey, Serv
                     Some(st.rate_limit_interval_id),
                 ),
                 None => (
-                    req.rate_limit_daily.unwrap_or(6000),
+                    req.rate_limit_daily.unwrap_or(6000.0),
                     req.subscription.clone(),
                     None,
                 ),
             }
         } else {
             (
-                req.rate_limit_daily.unwrap_or(6000),
+                req.rate_limit_daily.unwrap_or(6000.0),
                 req.subscription.clone(),
                 None,
             )

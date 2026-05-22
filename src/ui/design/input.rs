@@ -17,6 +17,10 @@ pub fn Input(
     /// Lowest acceptable numeric value — emitted only for `type="number"`.
     #[prop(optional, into)]
     min: Option<&'static str>,
+    /// HTML `step` attribute — pass `"any"` to permit fractional input
+    /// on `type="number"`.
+    #[prop(optional, into)]
+    step: Option<&'static str>,
     /// Reactive read-only flag. A readonly input gets the muted-surface
     /// treatment so it visibly signals its non-interactivity.
     #[prop(optional, into)]
@@ -29,6 +33,7 @@ pub fn Input(
     let ty = input_type.unwrap_or("text");
     let placeholder = placeholder.unwrap_or("");
     let min = min.unwrap_or("");
+    let step = step.unwrap_or("");
     let id = id.unwrap_or("");
     view! {
         <input
@@ -37,6 +42,7 @@ pub fn Input(
             required=required
             placeholder=placeholder
             min=min
+            step=step
             class=move || if readonly.get() { INPUT_READONLY } else { INPUT_BASE }
             prop:value=move || value.get()
             prop:readOnly=move || readonly.get()

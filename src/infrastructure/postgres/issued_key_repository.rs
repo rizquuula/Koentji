@@ -88,7 +88,7 @@ impl IssuedKeyRepository for PostgresIssuedKeyRepository {
         usage: RateLimitUsage,
         now: DateTime<Utc>,
     ) -> Result<ConsumeOutcome, RepositoryError> {
-        let row: Option<(i32, DateTime<Utc>)> = sqlx::query_as(
+        let row: Option<(f64, DateTime<Utc>)> = sqlx::query_as(
             r#"
             UPDATE authentication_keys ak
             SET
@@ -99,8 +99,8 @@ impl IssuedKeyRepository for PostgresIssuedKeyRepository {
                                 (SELECT duration_seconds FROM rate_limit_intervals
                                  WHERE id = ak.rate_limit_interval_id),
                                 86400)
-                    THEN ak.rate_limit_daily - $2::int
-                    ELSE ak.rate_limit_remaining - $2::int
+                    THEN ak.rate_limit_daily - $2::double precision
+                    ELSE ak.rate_limit_remaining - $2::double precision
                 END,
                 rate_limit_updated_at = $1::timestamptz
             WHERE ak.key = $3
@@ -112,9 +112,9 @@ impl IssuedKeyRepository for PostgresIssuedKeyRepository {
                             (SELECT duration_seconds FROM rate_limit_intervals
                              WHERE id = ak.rate_limit_interval_id),
                             86400)
-                  OR ak.rate_limit_remaining >= $2::int
+                  OR ak.rate_limit_remaining >= $2::double precision
               )
-              AND ak.rate_limit_daily >= $2::int
+              AND ak.rate_limit_daily >= $2::double precision
             RETURNING ak.rate_limit_remaining, ak.rate_limit_updated_at
             "#,
         )
@@ -147,7 +147,7 @@ impl IssuedKeyRepository for PostgresIssuedKeyRepository {
 
         // Branch A — client presented the FREE_TRIAL magic marker.
         if key.as_str() == config.marker {
-            let sub: Option<(i32, i32, i32)> = sqlx::query_as(
+            let sub: Option<(i32, f64, i32)> = sqlx::query_as(
                 "SELECT id, rate_limit_amount, rate_limit_interval_id
                  FROM subscription_types
                  WHERE name = $1 AND is_active = true
@@ -175,7 +175,7 @@ impl IssuedKeyRepository for PostgresIssuedKeyRepository {
                     "Free trial subscription type '{}' not found or inactive, using hardcoded fallback (6000 daily)",
                     config.subscription_name
                 );
-                ("free_trial".to_string(), None, 6000, None)
+                ("free_trial".to_string(), None, 6000.0_f64, None)
             };
 
             let now = Utc::now();
@@ -482,8 +482,8 @@ struct IssuedKeyRow {
     key: String,
     device_id: String,
     subscription: Option<String>,
-    rate_limit_daily: i32,
-    rate_limit_remaining: i32,
+    rate_limit_daily: f64,
+    rate_limit_remaining: f64,
     rate_limit_updated_at: Option<DateTime<Utc>>,
     expired_at: Option<DateTime<Utc>>,
     deleted_at: Option<DateTime<Utc>>,

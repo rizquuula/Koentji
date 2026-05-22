@@ -57,7 +57,7 @@ pub struct IssueKeyCommand {
 /// [`super::auth_decision::AuthDecision`] but only covers the
 /// rate-limit axis — the use case composes this with the pure
 /// revoked/expired checks already performed upstream.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ConsumeOutcome {
     /// The row was updated under a row lock. `remaining` is the
     /// post-decrement value the caller may echo back to clients /

@@ -1,11 +1,10 @@
 include!(concat!(env!("OUT_DIR"), "/clickhouse_migrations.rs"));
 
 pub async fn create_client() -> clickhouse::Client {
-    let url = std::env::var("CLICKHOUSE_URL")
-        .unwrap_or_else(|_| {
-            log::warn!("CLICKHOUSE_URL not set, defaulting to http://localhost:8123");
-            "http://localhost:8123".to_string()
-        });
+    let url = std::env::var("CLICKHOUSE_URL").unwrap_or_else(|_| {
+        log::warn!("CLICKHOUSE_URL not set, defaulting to http://localhost:8123");
+        "http://localhost:8123".to_string()
+    });
 
     // Parse user/password/database from URL
     // Expected format: http://user:password@host:port/database
@@ -33,7 +32,11 @@ fn parse_clickhouse_url(url: &str) -> (String, String, String, String) {
         url
     };
 
-    let scheme = if url.starts_with("https://") { "https" } else { "http" };
+    let scheme = if url.starts_with("https://") {
+        "https"
+    } else {
+        "http"
+    };
 
     // Split userinfo@host/db
     let (userinfo_host, db_part) = if let Some(slash) = rest.find('/') {

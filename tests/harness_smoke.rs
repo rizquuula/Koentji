@@ -19,11 +19,11 @@ async fn harness_round_trips_a_key() {
 
     let seeded = a_key()
         .with_device("smoke-device")
-        .with_rate_limit(100)
+        .with_rate_limit(100.0)
         .insert(&pool)
         .await;
 
-    let fetched: (String, String, i32) = sqlx::query_as(
+    let fetched: (String, String, f64) = sqlx::query_as(
         "SELECT key, device_id, rate_limit_daily FROM authentication_keys WHERE id = $1",
     )
     .bind(seeded.id)
@@ -33,7 +33,7 @@ async fn harness_round_trips_a_key() {
 
     assert_eq!(fetched.0, seeded.key);
     assert_eq!(fetched.1, "smoke-device");
-    assert_eq!(fetched.2, 100);
+    assert_eq!(fetched.2, 100.0);
 }
 
 #[tokio::test]

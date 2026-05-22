@@ -45,7 +45,7 @@ impl IssuedKeyId {
 /// Tracks the daily allotment, the remaining quota inside the current
 /// window, and when that window last advanced. The reset decision is a
 /// pure function of `(window, last_updated, now)` — no IO needed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RateLimitLedger {
     pub daily: RateLimitAmount,
     pub remaining: RateLimitAmount,
@@ -71,7 +71,7 @@ impl RateLimitLedger {
 /// `username` and `email` ride along because the success envelope on
 /// `/v1/auth` echoes them back to clients. They are not part of the
 /// authorization decision.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IssuedKey {
     pub id: IssuedKeyId,
     pub key: AuthKey,
@@ -182,7 +182,7 @@ mod tests {
             .with_timezone(&Utc)
     }
 
-    fn active_key_with_quota(daily: i32, remaining: i32) -> IssuedKey {
+    fn active_key_with_quota(daily: f64, remaining: f64) -> IssuedKey {
         IssuedKey {
             id: IssuedKeyId::new(1),
             key: AuthKey::parse("klab_test").unwrap(),
@@ -204,25 +204,25 @@ mod tests {
 
     #[test]
     fn authorizes_an_active_under_quota_key() {
-        let k = active_key_with_quota(100, 50);
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let k = active_key_with_quota(100.0, 50.0);
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         match d {
-            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 49),
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 49.0),
             other => panic!("expected Allowed, got {:?}", other),
         }
     }
 
     #[test]
     fn denies_a_revoked_key_even_with_quota() {
-        let mut k = active_key_with_quota(100, 50);
+        let mut k = active_key_with_quota(100.0, 50.0);
         k.revoke(clock() - Duration::days(1));
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::Revoked { .. }));
     }
 
     #[test]
     fn revoke_is_idempotent() {
-        let mut k = active_key_with_quota(100, 50);
+        let mut k = active_key_with_quota(100.0, 50.0);
         let first = clock() - Duration::days(1);
         let second = clock();
         k.revoke(first);
@@ -232,85 +232,85 @@ mod tests {
 
     #[test]
     fn denies_an_expired_admin_key_with_expired_reason() {
-        let mut k = active_key_with_quota(100, 50);
+        let mut k = active_key_with_quota(100.0, 50.0);
         k.expired_at = Some(clock() - Duration::minutes(1));
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::Expired { .. }));
     }
 
     #[test]
     fn denies_an_expired_free_trial_with_its_own_reason() {
-        let mut k = active_key_with_quota(100, 50);
+        let mut k = active_key_with_quota(100.0, 50.0);
         k.is_free_trial = true;
         k.expired_at = Some(clock() - Duration::minutes(1));
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::FreeTrialEnded { .. }));
     }
 
     #[test]
     fn allows_the_last_slot_when_remaining_equals_usage() {
-        let k = active_key_with_quota(10, 1);
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let k = active_key_with_quota(10.0, 1.0);
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         match d {
-            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0.0),
             other => panic!("expected Allowed, got {:?}", other),
         }
     }
 
     #[test]
     fn denies_when_remaining_is_strictly_less_than_usage() {
-        let k = active_key_with_quota(10, 1);
-        let d = k.authorize(RateLimitUsage::literal(2), clock());
+        let k = active_key_with_quota(10.0, 1.0);
+        let d = k.authorize(RateLimitUsage::literal(2.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
     }
 
     #[test]
     fn denies_when_exhausted_with_remaining_zero() {
-        let k = active_key_with_quota(10, 0);
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let k = active_key_with_quota(10.0, 0.0);
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
     }
 
     #[test]
     fn allows_usage_equal_to_daily() {
-        let k = active_key_with_quota(10, 10);
-        let d = k.authorize(RateLimitUsage::literal(10), clock());
+        let k = active_key_with_quota(10.0, 10.0);
+        let d = k.authorize(RateLimitUsage::literal(10.0), clock());
         match d {
-            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0.0),
             other => panic!("expected Allowed, got {:?}", other),
         }
     }
 
     #[test]
     fn rejects_usage_greater_than_daily() {
-        let k = active_key_with_quota(10, 10);
-        let d = k.authorize(RateLimitUsage::literal(11), clock());
+        let k = active_key_with_quota(10.0, 10.0);
+        let d = k.authorize(RateLimitUsage::literal(11.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
     }
 
     #[test]
     fn resets_quota_after_window_elapses() {
-        let mut k = active_key_with_quota(10, 0);
+        let mut k = active_key_with_quota(10.0, 0.0);
         // Last update two days ago — daily window has long elapsed.
         k.rate_limit.last_updated_at = Some(clock() - Duration::days(2));
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         match d {
-            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 9),
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 9.0),
             other => panic!("expected reset + Allowed, got {:?}", other),
         }
     }
 
     #[test]
     fn treats_a_null_last_updated_as_an_elapsed_window() {
-        let mut k = active_key_with_quota(10, 0);
+        let mut k = active_key_with_quota(10.0, 0.0);
         k.rate_limit.last_updated_at = None;
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         assert!(d.is_allowed());
     }
 
     #[test]
     fn reassign_to_updates_device_without_touching_ledger() {
-        let mut k = active_key_with_quota(10, 5);
+        let mut k = active_key_with_quota(10.0, 5.0);
         let before = k.rate_limit.clone();
         k.reassign_to(DeviceId::parse("dev-2").unwrap());
         assert_eq!(k.device_id.as_str(), "dev-2");
@@ -319,15 +319,15 @@ mod tests {
 
     #[test]
     fn reset_rate_limit_restores_full_daily_and_stamps_now() {
-        let mut k = active_key_with_quota(10, 3);
+        let mut k = active_key_with_quota(10.0, 3.0);
         k.reset_rate_limit(clock());
-        assert_eq!(k.rate_limit.remaining.value(), 10);
+        assert_eq!(k.rate_limit.remaining.value(), 10.0);
         assert_eq!(k.rate_limit.last_updated_at, Some(clock()));
     }
 
     #[test]
     fn extend_until_sets_and_clears_expiry() {
-        let mut k = active_key_with_quota(10, 5);
+        let mut k = active_key_with_quota(10.0, 5.0);
         let later = clock() + Duration::days(30);
         k.extend_until(Some(later));
         assert_eq!(k.expired_at, Some(later));
@@ -353,27 +353,27 @@ mod tests {
 
     #[test]
     fn revoked_beats_expired_and_rate_limit() {
-        let mut k = active_key_with_quota(10, 0);
+        let mut k = active_key_with_quota(10.0, 0.0);
         k.revoke(clock() - Duration::days(1));
         k.expired_at = Some(clock() - Duration::minutes(1));
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::Revoked { .. }));
     }
 
     #[test]
     fn expired_beats_rate_limit_when_not_revoked() {
-        let mut k = active_key_with_quota(10, 0);
+        let mut k = active_key_with_quota(10.0, 0.0);
         k.expired_at = Some(clock() - Duration::minutes(1));
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::Expired { .. }));
     }
 
     #[test]
     fn free_trial_ended_takes_priority_over_rate_limit() {
-        let mut k = active_key_with_quota(10, 0);
+        let mut k = active_key_with_quota(10.0, 0.0);
         k.is_free_trial = true;
         k.expired_at = Some(clock() - Duration::minutes(1));
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::FreeTrialEnded { .. }));
     }
 
@@ -382,35 +382,35 @@ mod tests {
     #[test]
     fn denies_at_the_exact_expiry_instant() {
         // Legacy predicate is `expired_at <= now`, so `==` denies.
-        let mut k = active_key_with_quota(10, 5);
+        let mut k = active_key_with_quota(10.0, 5.0);
         k.expired_at = Some(clock());
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::Expired { .. }));
     }
 
     #[test]
     fn allows_one_nanosecond_before_expiry() {
-        let mut k = active_key_with_quota(10, 5);
+        let mut k = active_key_with_quota(10.0, 5.0);
         k.expired_at = Some(clock() + Duration::nanoseconds(1));
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         assert!(d.is_allowed());
     }
 
     #[test]
     fn window_reset_fires_exactly_at_the_window_boundary() {
         // `(now - last) >= window` — at `==` we reset.
-        let mut k = active_key_with_quota(10, 0);
+        let mut k = active_key_with_quota(10.0, 0.0);
         k.rate_limit.last_updated_at = Some(clock() - Duration::seconds(86_400));
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         assert!(d.is_allowed());
     }
 
     #[test]
     fn window_reset_does_not_fire_one_nanosecond_early() {
-        let mut k = active_key_with_quota(10, 0);
+        let mut k = active_key_with_quota(10.0, 0.0);
         k.rate_limit.last_updated_at =
             Some(clock() - Duration::seconds(86_400) + Duration::nanoseconds(1));
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
     }
 
@@ -418,38 +418,38 @@ mod tests {
 
     #[test]
     fn allows_when_remaining_is_exactly_one_more_than_usage() {
-        let k = active_key_with_quota(10, 2);
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let k = active_key_with_quota(10.0, 2.0);
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         match d {
-            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 1),
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 1.0),
             other => panic!("expected Allowed, got {:?}", other),
         }
     }
 
     #[test]
     fn denies_when_remaining_is_one_less_than_usage() {
-        let k = active_key_with_quota(10, 3);
-        let d = k.authorize(RateLimitUsage::literal(4), clock());
+        let k = active_key_with_quota(10.0, 3.0);
+        let d = k.authorize(RateLimitUsage::literal(4.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
     }
 
     #[test]
     fn large_usage_equal_to_daily_is_allowed() {
-        let k = active_key_with_quota(6_000, 6_000);
-        let d = k.authorize(RateLimitUsage::literal(6_000), clock());
+        let k = active_key_with_quota(6_000.0, 6_000.0);
+        let d = k.authorize(RateLimitUsage::literal(6_000.0), clock());
         match d {
-            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0.0),
             other => panic!("expected Allowed, got {:?}", other),
         }
     }
 
     #[test]
     fn large_usage_equal_to_daily_is_allowed_after_window_reset() {
-        let mut k = active_key_with_quota(6_000, 0);
+        let mut k = active_key_with_quota(6_000.0, 0.0);
         k.rate_limit.last_updated_at = Some(clock() - Duration::days(2));
-        let d = k.authorize(RateLimitUsage::literal(6_000), clock());
+        let d = k.authorize(RateLimitUsage::literal(6_000.0), clock());
         match d {
-            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0.0),
             other => panic!("expected Allowed, got {:?}", other),
         }
     }
@@ -460,10 +460,10 @@ mod tests {
         // ledger without consuming). The legacy SQL predicate
         // `daily > 0` still holds, and `remaining > 0` or a window reset
         // should allow it.
-        let k = active_key_with_quota(10, 5);
-        let d = k.authorize(RateLimitUsage::literal(0), clock());
+        let k = active_key_with_quota(10.0, 5.0);
+        let d = k.authorize(RateLimitUsage::literal(0.0), clock());
         match d {
-            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 5),
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 5.0),
             other => panic!("expected Allowed, got {:?}", other),
         }
     }
@@ -472,16 +472,16 @@ mod tests {
 
     #[test]
     fn respects_a_custom_sixty_second_window() {
-        let mut k = active_key_with_quota(10, 0);
+        let mut k = active_key_with_quota(10.0, 0.0);
         k.rate_limit.window = RateLimitWindow::from_seconds(60).unwrap();
         k.rate_limit.last_updated_at = Some(clock() - Duration::seconds(59));
         // Still inside the window — remaining==0 denies.
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
 
         // Advance past the window — reset fires.
         k.rate_limit.last_updated_at = Some(clock() - Duration::seconds(61));
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         assert!(d.is_allowed());
     }
 
@@ -489,10 +489,10 @@ mod tests {
 
     #[test]
     fn authorize_does_not_mutate_the_aggregate() {
-        let k = active_key_with_quota(10, 3);
+        let k = active_key_with_quota(10.0, 3.0);
         let before = k.clone();
-        let _ = k.authorize(RateLimitUsage::literal(1), clock());
-        let _ = k.authorize(RateLimitUsage::literal(1), clock());
+        let _ = k.authorize(RateLimitUsage::literal(1.0), clock());
+        let _ = k.authorize(RateLimitUsage::literal(1.0), clock());
         assert_eq!(k, before);
     }
 
@@ -500,9 +500,9 @@ mod tests {
 
     #[test]
     fn allowed_decisions_stamp_updated_at_with_now() {
-        let k = active_key_with_quota(10, 5);
+        let k = active_key_with_quota(10.0, 5.0);
         let at = clock();
-        match k.authorize(RateLimitUsage::literal(1), at) {
+        match k.authorize(RateLimitUsage::literal(1.0), at) {
             AuthDecision::Allowed { updated_at, .. } => assert_eq!(updated_at, at),
             other => panic!("expected Allowed, got {:?}", other),
         }
@@ -512,10 +512,10 @@ mod tests {
 
     #[test]
     fn revoked_denial_carries_the_revocation_timestamp() {
-        let mut k = active_key_with_quota(10, 5);
+        let mut k = active_key_with_quota(10.0, 5.0);
         let revoked_at = clock() - Duration::hours(3);
         k.revoke(revoked_at);
-        match k.authorize(RateLimitUsage::literal(1), clock()) {
+        match k.authorize(RateLimitUsage::literal(1.0), clock()) {
             AuthDecision::Denied {
                 reason: DenialReason::Revoked { at },
             } => assert_eq!(at, revoked_at),
@@ -525,10 +525,10 @@ mod tests {
 
     #[test]
     fn expired_denial_carries_the_expiry_timestamp() {
-        let mut k = active_key_with_quota(10, 5);
+        let mut k = active_key_with_quota(10.0, 5.0);
         let expires_at = clock() - Duration::minutes(5);
         k.expired_at = Some(expires_at);
-        match k.authorize(RateLimitUsage::literal(1), clock()) {
+        match k.authorize(RateLimitUsage::literal(1.0), clock()) {
             AuthDecision::Denied {
                 reason: DenialReason::Expired { at },
             } => assert_eq!(at, expires_at),
@@ -538,11 +538,11 @@ mod tests {
 
     #[test]
     fn free_trial_denial_carries_the_expiry_timestamp() {
-        let mut k = active_key_with_quota(10, 5);
+        let mut k = active_key_with_quota(10.0, 5.0);
         k.is_free_trial = true;
         let expires_at = clock() - Duration::minutes(5);
         k.expired_at = Some(expires_at);
-        match k.authorize(RateLimitUsage::literal(1), clock()) {
+        match k.authorize(RateLimitUsage::literal(1.0), clock()) {
             AuthDecision::Denied {
                 reason: DenialReason::FreeTrialEnded { at },
             } => assert_eq!(at, expires_at),
@@ -554,43 +554,43 @@ mod tests {
 
     #[test]
     fn reassign_to_does_not_resurrect_revocation() {
-        let mut k = active_key_with_quota(10, 5);
+        let mut k = active_key_with_quota(10.0, 5.0);
         k.revoke(clock() - Duration::days(1));
         k.reassign_to(DeviceId::parse("dev-2").unwrap());
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::Revoked { .. }));
     }
 
     #[test]
     fn reset_rate_limit_does_not_revive_a_revoked_key() {
-        let mut k = active_key_with_quota(10, 0);
+        let mut k = active_key_with_quota(10.0, 0.0);
         k.revoke(clock() - Duration::days(1));
         k.reset_rate_limit(clock());
-        let d = k.authorize(RateLimitUsage::literal(1), clock());
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::Revoked { .. }));
     }
 
     #[test]
     fn extend_until_can_push_expiry_into_the_future_to_re_allow() {
-        let mut k = active_key_with_quota(10, 5);
+        let mut k = active_key_with_quota(10.0, 5.0);
         k.expired_at = Some(clock() - Duration::minutes(1));
         // Confirm it's currently denied.
         assert!(!k
-            .authorize(RateLimitUsage::literal(1), clock())
+            .authorize(RateLimitUsage::literal(1.0), clock())
             .is_allowed());
         k.extend_until(Some(clock() + Duration::days(30)));
         assert!(k
-            .authorize(RateLimitUsage::literal(1), clock())
+            .authorize(RateLimitUsage::literal(1.0), clock())
             .is_allowed());
     }
 
     #[test]
     fn extend_until_none_leaves_an_endless_key() {
-        let mut k = active_key_with_quota(10, 5);
+        let mut k = active_key_with_quota(10.0, 5.0);
         k.expired_at = Some(clock() + Duration::days(30));
         k.extend_until(None);
         assert!(k
-            .authorize(RateLimitUsage::literal(1), clock())
+            .authorize(RateLimitUsage::literal(1.0), clock())
             .is_allowed());
     }
 
@@ -598,20 +598,20 @@ mod tests {
 
     #[test]
     fn full_daily_consume_on_a_fresh_window_drains_to_zero() {
-        let mut k = active_key_with_quota(10, 0);
+        let mut k = active_key_with_quota(10.0, 0.0);
         k.rate_limit.last_updated_at = Some(clock() - Duration::days(2));
-        let d = k.authorize(RateLimitUsage::literal(10), clock());
+        let d = k.authorize(RateLimitUsage::literal(10.0), clock());
         match d {
-            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
+            AuthDecision::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0.0),
             other => panic!("expected Allowed, got {:?}", other),
         }
     }
 
     #[test]
     fn over_daily_consume_on_a_fresh_window_is_denied() {
-        let mut k = active_key_with_quota(10, 0);
+        let mut k = active_key_with_quota(10.0, 0.0);
         k.rate_limit.last_updated_at = Some(clock() - Duration::days(2));
-        let d = k.authorize(RateLimitUsage::literal(11), clock());
+        let d = k.authorize(RateLimitUsage::literal(11.0), clock());
         matches_denial(&d, |r| matches!(r, DenialReason::RateLimitExceeded));
     }
 }

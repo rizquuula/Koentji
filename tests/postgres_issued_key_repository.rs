@@ -46,7 +46,7 @@ fn device(s: &str) -> DeviceId {
     DeviceId::parse(s.to_string()).expect("valid test device")
 }
 
-fn usage(n: i32) -> RateLimitUsage {
+fn usage(n: f64) -> RateLimitUsage {
     RateLimitUsage::new(n).expect("non-negative usage")
 }
 
@@ -79,8 +79,8 @@ async fn find_hydrates_identity_and_ledger_fields() {
     let inserted = a_key()
         .with_key("klab_find_id")
         .with_device("dev-find")
-        .with_rate_limit(100)
-        .with_remaining(37)
+        .with_rate_limit(100.0)
+        .with_remaining(37.0)
         .with_username("alice")
         .with_email("alice@example.com")
         .insert(&pool)
@@ -95,8 +95,8 @@ async fn find_hydrates_identity_and_ledger_fields() {
 
     assert_eq!(snap.key.as_str(), "klab_find_id");
     assert_eq!(snap.device_id.as_str(), "dev-find");
-    assert_eq!(snap.rate_limit.daily.value(), 100);
-    assert_eq!(snap.rate_limit.remaining.value(), 37);
+    assert_eq!(snap.rate_limit.daily.value(), 100.0);
+    assert_eq!(snap.rate_limit.remaining.value(), 37.0);
     assert_eq!(snap.username.as_deref(), Some("alice"));
     assert_eq!(snap.email.as_deref(), Some("alice@example.com"));
     assert!(snap.revoked_at.is_none());
@@ -146,8 +146,8 @@ async fn consume_quota_allows_and_decrements_within_quota() {
     let inserted = a_key()
         .with_key("klab_consume_1")
         .with_device("dev-consume-1")
-        .with_rate_limit(100)
-        .with_remaining(10)
+        .with_rate_limit(100.0)
+        .with_remaining(10.0)
         .insert(&pool)
         .await;
     stamp_updated_now(&pool, inserted.id).await;
@@ -157,14 +157,14 @@ async fn consume_quota_allows_and_decrements_within_quota() {
         .consume_quota(
             &auth_key(&inserted.key),
             &device(&inserted.device_id),
-            usage(1),
+            usage(1.0),
             now(),
         )
         .await
         .expect("consume must not error");
 
     match out {
-        ConsumeOutcome::Allowed { remaining, .. } => assert_eq!(remaining.value(), 9),
+        ConsumeOutcome::Allowed { remaining, .. } => assert_eq!(remaining.value(), 9.0),
         ConsumeOutcome::RateLimitExceeded => panic!("expected Allowed"),
     }
 }
@@ -177,8 +177,8 @@ async fn consume_quota_allows_exactly_at_the_boundary() {
     let inserted = a_key()
         .with_key("klab_consume_boundary")
         .with_device("dev-boundary")
-        .with_rate_limit(10)
-        .with_remaining(1)
+        .with_rate_limit(10.0)
+        .with_remaining(1.0)
         .insert(&pool)
         .await;
     stamp_updated_now(&pool, inserted.id).await;
@@ -188,14 +188,14 @@ async fn consume_quota_allows_exactly_at_the_boundary() {
         .consume_quota(
             &auth_key(&inserted.key),
             &device(&inserted.device_id),
-            usage(1),
+            usage(1.0),
             now(),
         )
         .await
         .expect("consume must not error");
 
     match out {
-        ConsumeOutcome::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0),
+        ConsumeOutcome::Allowed { remaining, .. } => assert_eq!(remaining.value(), 0.0),
         ConsumeOutcome::RateLimitExceeded => panic!("expected Allowed at boundary"),
     }
 
@@ -203,7 +203,7 @@ async fn consume_quota_allows_exactly_at_the_boundary() {
         .consume_quota(
             &auth_key(&inserted.key),
             &device(&inserted.device_id),
-            usage(1),
+            usage(1.0),
             now(),
         )
         .await
@@ -217,8 +217,8 @@ async fn consume_quota_resets_when_the_window_has_elapsed() {
     let inserted = a_key()
         .with_key("klab_consume_reset")
         .with_device("dev-reset")
-        .with_rate_limit(10)
-        .with_remaining(0)
+        .with_rate_limit(10.0)
+        .with_remaining(0.0)
         .insert(&pool)
         .await;
 
@@ -234,14 +234,14 @@ async fn consume_quota_resets_when_the_window_has_elapsed() {
         .consume_quota(
             &auth_key(&inserted.key),
             &device(&inserted.device_id),
-            usage(1),
+            usage(1.0),
             now(),
         )
         .await
         .expect("consume must not error");
 
     match out {
-        ConsumeOutcome::Allowed { remaining, .. } => assert_eq!(remaining.value(), 9),
+        ConsumeOutcome::Allowed { remaining, .. } => assert_eq!(remaining.value(), 9.0),
         ConsumeOutcome::RateLimitExceeded => panic!("expected reset + Allowed"),
     }
 }
@@ -255,8 +255,8 @@ async fn consume_quota_never_oversells_under_concurrency() {
     let inserted = a_key()
         .with_key("klab_consume_race")
         .with_device("dev-race")
-        .with_rate_limit(20)
-        .with_remaining(20)
+        .with_rate_limit(20.0)
+        .with_remaining(20.0)
         .insert(&pool)
         .await;
     stamp_updated_now(&pool, inserted.id).await;
@@ -268,7 +268,7 @@ async fn consume_quota_never_oversells_under_concurrency() {
         let k = inserted.key.clone();
         let d = inserted.device_id.clone();
         handles.push(tokio::spawn(async move {
-            r.consume_quota(&auth_key(&k), &device(&d), usage(1), now())
+            r.consume_quota(&auth_key(&k), &device(&d), usage(1.0), now())
                 .await
                 .expect("consume must not error")
         }));
@@ -284,13 +284,13 @@ async fn consume_quota_never_oversells_under_concurrency() {
     // exactly 20 attempts win and the 21st is refused.
     assert_eq!(allowed, 20);
 
-    let (final_remaining,): (i32,) =
+    let (final_remaining,): (f64,) =
         sqlx::query_as("SELECT rate_limit_remaining FROM authentication_keys WHERE id = $1")
             .bind(inserted.id)
             .fetch_one(&pool)
             .await
             .expect("read back");
-    assert_eq!(final_remaining, 0);
+    assert_eq!(final_remaining, 0.0);
 }
 
 #[tokio::test]
@@ -299,7 +299,7 @@ async fn consume_quota_denies_when_usage_exceeds_daily() {
     let inserted = a_key()
         .with_key("klab_consume_usage_gt_daily")
         .with_device("dev-usage-gt-daily")
-        .with_rate_limit(5)
+        .with_rate_limit(5.0)
         .insert(&pool)
         .await;
     stamp_updated_now(&pool, inserted.id).await;
@@ -309,7 +309,7 @@ async fn consume_quota_denies_when_usage_exceeds_daily() {
         .consume_quota(
             &auth_key(&inserted.key),
             &device(&inserted.device_id),
-            usage(6),
+            usage(6.0),
             now(),
         )
         .await
@@ -389,7 +389,7 @@ async fn claim_free_trial_returns_none_for_an_unknown_non_marker_key() {
 
 // ---- Admin verbs (Phase 2.1–2.3) ------------------------------------------
 
-fn issue_command(key: &str, device_s: &str, daily: i32) -> IssueKeyCommand {
+fn issue_command(key: &str, device_s: &str, daily: f64) -> IssueKeyCommand {
     IssueKeyCommand {
         key: auth_key(key),
         device: device(device_s),
@@ -410,13 +410,13 @@ async fn issue_key_inserts_and_returns_aggregate() {
     let r = repo(pool.clone());
 
     let issued = r
-        .issue_key(issue_command("klab_issued_1", "dev-issued-1", 100))
+        .issue_key(issue_command("klab_issued_1", "dev-issued-1", 100.0))
         .await
         .expect("issue must not error");
 
     assert_eq!(issued.key.as_str(), "klab_issued_1");
     assert_eq!(issued.device_id.as_str(), "dev-issued-1");
-    assert_eq!(issued.rate_limit.daily.value(), 100);
+    assert_eq!(issued.rate_limit.daily.value(), 100.0);
     assert_eq!(issued.username.as_deref(), Some("ada"));
     assert_eq!(issued.email.as_deref(), Some("ada@example.com"));
     assert!(issued.revoked_at.is_none());
@@ -432,13 +432,17 @@ async fn issue_key_defaults_remaining_to_daily() {
     let r = repo(pool.clone());
 
     let issued = r
-        .issue_key(issue_command("klab_issued_remaining", "dev-remaining", 250))
+        .issue_key(issue_command(
+            "klab_issued_remaining",
+            "dev-remaining",
+            250.0,
+        ))
         .await
         .expect("issue must not error");
 
     // Freshly issued rows start the window with full quota.
-    assert_eq!(issued.rate_limit.remaining.value(), 250);
-    assert_eq!(issued.rate_limit.daily.value(), 250);
+    assert_eq!(issued.rate_limit.remaining.value(), 250.0);
+    assert_eq!(issued.rate_limit.daily.value(), 250.0);
 }
 
 #[tokio::test]
@@ -582,8 +586,8 @@ async fn reset_rate_limit_restores_daily_and_stamps_updated_at() {
     let inserted = a_key()
         .with_key("klab_reset")
         .with_device("dev-reset-admin")
-        .with_rate_limit(500)
-        .with_remaining(3)
+        .with_rate_limit(500.0)
+        .with_remaining(3.0)
         .insert(&pool)
         .await;
 
@@ -598,14 +602,14 @@ async fn reset_rate_limit_restores_daily_and_stamps_updated_at() {
     assert_eq!(out.0.as_str(), "klab_reset");
     assert_eq!(out.1.as_str(), "dev-reset-admin");
 
-    let (remaining, updated_at): (i32, Option<DateTime<Utc>>) = sqlx::query_as(
+    let (remaining, updated_at): (f64, Option<DateTime<Utc>>) = sqlx::query_as(
         "SELECT rate_limit_remaining, rate_limit_updated_at FROM authentication_keys WHERE id = $1",
     )
     .bind(inserted.id)
     .fetch_one(&pool)
     .await
     .expect("row exists");
-    assert_eq!(remaining, 500);
+    assert_eq!(remaining, 500.0);
     let stamped = updated_at.expect("updated_at stamped");
     assert!(
         (stamped - reset_at).num_seconds().abs() < 2,

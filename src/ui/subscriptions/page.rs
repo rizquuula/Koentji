@@ -273,7 +273,7 @@ fn SubscriptionForm(
                 let req = CreateSubscriptionTypeRequest {
                     name,
                     display_name,
-                    rate_limit_amount: rate_limit_amount.parse().unwrap_or(6000),
+                    rate_limit_amount: rate_limit_amount.parse().unwrap_or(6000.0),
                     rate_limit_interval_id: rate_limit_interval_id.parse().unwrap_or(0),
                 };
                 create_subscription_type(req).await.map(|_| ())
@@ -299,7 +299,7 @@ fn SubscriptionForm(
                 </div>
                 <div>
                     <label for="sub-rate-amount" class="block text-sm font-medium text-ink-body mb-1">"Rate Limit Amount *"</label>
-                    <Input id="sub-rate-amount" value=rate_limit_amount required=true input_type="number" min="1" />
+                    <Input id="sub-rate-amount" value=rate_limit_amount required=true input_type="number" min="0" step="any" />
                 </div>
                 <div>
                     <label for="sub-rate-interval" class="block text-sm font-medium text-ink-body mb-1">"Rate Limit Interval *"</label>

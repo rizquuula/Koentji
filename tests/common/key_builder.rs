@@ -9,7 +9,7 @@ use chrono::{DateTime, Duration, Utc};
 use koentji::models::AuthenticationKey;
 use sqlx::PgPool;
 
-const DEFAULT_RATE_LIMIT: i32 = 6000;
+const DEFAULT_RATE_LIMIT: f64 = 6000.0;
 const DEFAULT_SUBSCRIPTION: &str = "free";
 
 /// A mutable recipe for an `AuthenticationKey`. Build up with `with_*`
@@ -19,8 +19,8 @@ pub struct KeyBuilder {
     key: String,
     device_id: String,
     subscription: Option<String>,
-    rate_limit_daily: i32,
-    rate_limit_remaining: Option<i32>,
+    rate_limit_daily: f64,
+    rate_limit_remaining: Option<f64>,
     username: Option<String>,
     email: Option<String>,
     expired_at: Option<DateTime<Utc>>,
@@ -61,19 +61,19 @@ impl KeyBuilder {
         self
     }
 
-    pub fn with_rate_limit(mut self, daily: i32) -> Self {
+    pub fn with_rate_limit(mut self, daily: f64) -> Self {
         self.rate_limit_daily = daily;
         self.rate_limit_remaining.get_or_insert(daily);
         self
     }
 
-    pub fn with_remaining(mut self, remaining: i32) -> Self {
+    pub fn with_remaining(mut self, remaining: f64) -> Self {
         self.rate_limit_remaining = Some(remaining);
         self
     }
 
     pub fn exhausted(mut self) -> Self {
-        self.rate_limit_remaining = Some(0);
+        self.rate_limit_remaining = Some(0.0);
         self
     }
 

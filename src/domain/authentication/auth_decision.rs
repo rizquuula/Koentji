@@ -33,7 +33,7 @@ pub enum DenialReason {
 /// When `Allowed`, the returned `remaining` reflects the
 /// post-decrement value the caller should persist; the decrement is
 /// pure and has not yet touched infrastructure.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AuthDecision {
     Allowed {
         remaining: RateLimitAmount,

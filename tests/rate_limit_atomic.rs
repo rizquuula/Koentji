@@ -22,21 +22,21 @@ async fn sequential_consume_decrements_by_usage() {
     let pool = fresh_pool().await;
     let seeded = a_key()
         .with_device("seq-dev")
-        .with_rate_limit(100)
+        .with_rate_limit(100.0)
         .insert(&pool)
         .await;
 
-    let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 1, Utc::now())
+    let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 1.0, Utc::now())
         .await
         .expect("first consume succeeds");
     let remaining = expect_allowed(r);
-    assert_eq!(remaining, 99, "remaining drops by exactly one");
+    assert_eq!(remaining, 99.0, "remaining drops by exactly one");
 
-    let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 5, Utc::now())
+    let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 5.0, Utc::now())
         .await
         .expect("second consume succeeds");
     let remaining = expect_allowed(r);
-    assert_eq!(remaining, 94, "remaining drops by requested usage");
+    assert_eq!(remaining, 94.0, "remaining drops by requested usage");
 }
 
 #[tokio::test]
@@ -44,22 +44,22 @@ async fn consume_returns_rate_limited_when_window_open_and_empty() {
     let pool = fresh_pool().await;
     let seeded = a_key()
         .with_device("exhaust-dev")
-        .with_rate_limit(3)
-        .with_remaining(3)
+        .with_rate_limit(3.0)
+        .with_remaining(3.0)
         .insert(&pool)
         .await;
 
     // With daily=3 the full quota is usable: three consumes drop
     // remaining to 2, 1, then 0.
-    for expected_remaining in [2, 1, 0] {
-        let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 1, Utc::now())
+    for expected_remaining in [2.0, 1.0, 0.0] {
+        let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 1.0, Utc::now())
             .await
             .unwrap();
         assert_eq!(expect_allowed(r), expected_remaining);
     }
 
     // Fourth consume: remaining=0 < usage=1 → predicate fails → rate-limited.
-    let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 1, Utc::now())
+    let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 1.0, Utc::now())
         .await
         .unwrap();
     assert!(matches!(r, ConsumeResult::RateLimitExceeded));
@@ -74,8 +74,8 @@ async fn concurrent_consume_never_exceeds_quota() {
     let pool = fresh_pool().await;
     let seeded = a_key()
         .with_device("race-dev")
-        .with_rate_limit(10)
-        .with_remaining(10)
+        .with_rate_limit(10.0)
+        .with_remaining(10.0)
         .insert(&pool)
         .await;
 
@@ -92,7 +92,7 @@ async fn concurrent_consume_never_exceeds_quota() {
         let key = seeded.key.clone();
         let device = seeded.device_id.clone();
         handles.push(tokio::spawn(async move {
-            consume_rate_limit(&pool, &key, &device, 1, Utc::now())
+            consume_rate_limit(&pool, &key, &device, 1.0, Utc::now())
                 .await
                 .unwrap()
         }));
@@ -112,13 +112,13 @@ async fn concurrent_consume_never_exceeds_quota() {
 
     // DB ground truth: predicate `remaining >= usage` clamps at 0,
     // never races into a negative counter.
-    let final_remaining: i32 =
+    let final_remaining: f64 =
         sqlx::query_scalar("SELECT rate_limit_remaining FROM authentication_keys WHERE id = $1")
             .bind(seeded.id)
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(final_remaining, 0);
+    assert_eq!(final_remaining, 0.0);
 }
 
 #[tokio::test]
@@ -126,8 +126,8 @@ async fn window_elapsed_resets_remaining_to_daily_minus_usage() {
     let pool = fresh_pool().await;
     let seeded = a_key()
         .with_device("reset-dev")
-        .with_rate_limit(50)
-        .with_remaining(0) // exhausted
+        .with_rate_limit(50.0)
+        .with_remaining(0.0) // exhausted
         .insert(&pool)
         .await;
 
@@ -140,16 +140,16 @@ async fn window_elapsed_resets_remaining_to_daily_minus_usage() {
         .await
         .unwrap();
 
-    let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 1, Utc::now())
+    let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 1.0, Utc::now())
         .await
         .unwrap();
-    assert_eq!(expect_allowed(r), 49, "reset yields daily-minus-usage");
+    assert_eq!(expect_allowed(r), 49.0, "reset yields daily-minus-usage");
 }
 
 #[tokio::test]
 async fn unknown_key_returns_rate_limited() {
     let pool = fresh_pool().await;
-    let r = consume_rate_limit(&pool, "no_such_key", "no_such_device", 1, Utc::now())
+    let r = consume_rate_limit(&pool, "no_such_key", "no_such_device", 1.0, Utc::now())
         .await
         .unwrap();
     assert!(matches!(r, ConsumeResult::RateLimitExceeded));
@@ -160,17 +160,17 @@ async fn usage_exceeding_daily_is_rejected() {
     let pool = fresh_pool().await;
     let seeded = a_key()
         .with_device("huge-usage")
-        .with_rate_limit(10)
+        .with_rate_limit(10.0)
         .insert(&pool)
         .await;
 
-    let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 100, Utc::now())
+    let r = consume_rate_limit(&pool, &seeded.key, &seeded.device_id, 100.0, Utc::now())
         .await
         .unwrap();
     assert!(matches!(r, ConsumeResult::RateLimitExceeded));
 }
 
-fn expect_allowed(r: ConsumeResult) -> i32 {
+fn expect_allowed(r: ConsumeResult) -> f64 {
     match r {
         ConsumeResult::Allowed { remaining, .. } => remaining,
         ConsumeResult::RateLimitExceeded => panic!("expected Allowed, got RateLimitExceeded"),

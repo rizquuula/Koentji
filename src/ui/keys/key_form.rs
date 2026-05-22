@@ -188,6 +188,7 @@ pub fn KeyForm(
                         value=rate_limit
                         input_type="number"
                         min="0"
+                        step="any"
                         readonly=readonly_rate
                     />
                     <p class="text-xs text-ink-disabled mt-1">

@@ -8,8 +8,8 @@ pub struct AuthenticationKey {
     pub key: String,
     pub device_id: String,
     pub subscription: Option<String>,
-    pub rate_limit_daily: i32,
-    pub rate_limit_remaining: i32,
+    pub rate_limit_daily: f64,
+    pub rate_limit_remaining: f64,
     pub rate_limit_updated_at: Option<DateTime<Utc>>,
     pub username: Option<String>,
     pub email: Option<String>,
@@ -42,7 +42,7 @@ pub struct SubscriptionType {
     pub id: i32,
     pub name: String,
     pub display_name: String,
-    pub rate_limit_amount: i32,
+    pub rate_limit_amount: f64,
     pub rate_limit_interval_id: i32,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
@@ -69,11 +69,11 @@ impl AuthenticationKey {
     }
 
     pub fn rate_limit_percentage(&self) -> f64 {
-        if self.rate_limit_daily == 0 {
+        if self.rate_limit_daily == 0.0 {
             return 0.0;
         }
         let used = self.rate_limit_daily - self.rate_limit_remaining;
-        (used as f64 / self.rate_limit_daily as f64) * 100.0
+        (used / self.rate_limit_daily) * 100.0
     }
 
     pub fn masked_key(&self) -> String {
@@ -93,7 +93,7 @@ pub struct CreateKeyRequest {
     pub email: Option<String>,
     pub subscription: Option<String>,
     pub subscription_type_id: Option<i32>,
-    pub rate_limit_daily: Option<i32>,
+    pub rate_limit_daily: Option<f64>,
     pub expired_at: Option<String>,
 }
 
@@ -104,7 +104,7 @@ pub struct UpdateKeyRequest {
     pub email: Option<String>,
     pub subscription: Option<String>,
     pub subscription_type_id: Option<i32>,
-    pub rate_limit_daily: Option<i32>,
+    pub rate_limit_daily: Option<f64>,
     pub expired_at: Option<String>,
 }
 
@@ -112,7 +112,7 @@ pub struct UpdateKeyRequest {
 pub struct CreateSubscriptionTypeRequest {
     pub name: String,
     pub display_name: String,
-    pub rate_limit_amount: i32,
+    pub rate_limit_amount: f64,
     pub rate_limit_interval_id: i32,
 }
 
@@ -120,7 +120,7 @@ pub struct CreateSubscriptionTypeRequest {
 pub struct UpdateSubscriptionTypeRequest {
     pub name: Option<String>,
     pub display_name: Option<String>,
-    pub rate_limit_amount: Option<i32>,
+    pub rate_limit_amount: Option<f64>,
     pub rate_limit_interval_id: Option<i32>,
     pub is_active: Option<bool>,
 }

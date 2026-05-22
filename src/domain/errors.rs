@@ -27,6 +27,7 @@ pub enum InvalidReason {
     TooLong,
     Negative,
     Zero,
+    NotFinite,
 }
 
 impl fmt::Display for InvalidReason {
@@ -36,6 +37,7 @@ impl fmt::Display for InvalidReason {
             Self::TooLong => f.write_str("exceeds the maximum length"),
             Self::Negative => f.write_str("must not be negative"),
             Self::Zero => f.write_str("must be greater than zero"),
+            Self::NotFinite => f.write_str("must be a finite number"),
         }
     }
 }

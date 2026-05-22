@@ -100,7 +100,7 @@ pub async fn auth_endpoint(
     } else {
         body.rate_limit_usage
     };
-    let usage = RateLimitUsage::new(normalised_usage)
+    let usage = RateLimitUsage::new(normalised_usage as f64)
         .expect("normalised usage is always >= 1, never rejected by the value object");
 
     let outcome = handler.execute(key, device, usage, Utc::now()).await;
@@ -121,7 +121,10 @@ pub async fn auth_endpoint(
                     username: key.username.clone(),
                     email: key.email.clone(),
                     valid_until: key.expired_at.map(|d| d.to_rfc3339()),
-                    rate_limit_remaining: remaining.value(),
+                    // v1 envelope: `rate_limit_remaining` is integer JSON.
+                    // Ceil shim — fractional remainders should not round
+                    // down to 0 and signal "exhausted" while quota remains.
+                    rate_limit_remaining: remaining.value().ceil() as i32,
                 },
             })
         }
