@@ -12,10 +12,14 @@ const PREFIX = 'e2e_v2_';
 const KEYS = {
   ok: `${PREFIX}auth_ok`,
   v1ParityProbe: `${PREFIX}v1_parity`,
+  exhausted: `${PREFIX}exhausted`,
+  negative: `${PREFIX}negative`,
 };
 const DEVICES = {
   ok: `${PREFIX}auth_ok_dev`,
   v1ParityProbe: `${PREFIX}v1_parity_dev`,
+  exhausted: `${PREFIX}exhausted_dev`,
+  negative: `${PREFIX}negative_dev`,
 };
 
 test.describe('POST /v2/auth — float-native envelope', () => {
@@ -36,6 +40,22 @@ test.describe('POST /v2/auth — float-native envelope', () => {
       await insertKey(c, {
         key: KEYS.v1ParityProbe,
         device_id: DEVICES.v1ParityProbe,
+        subscription_type_name: 'free',
+        rate_limit_daily: 100,
+        rate_limit_remaining: 100,
+      });
+      // Sub-1.0 remaining so a usage=1.0 request trips the atomic
+      // consume's `remaining > usage` guard and yields 429.
+      await insertKey(c, {
+        key: KEYS.exhausted,
+        device_id: DEVICES.exhausted,
+        subscription_type_name: 'free',
+        rate_limit_daily: 100,
+        rate_limit_remaining: 0.5,
+      });
+      await insertKey(c, {
+        key: KEYS.negative,
+        device_id: DEVICES.negative,
         subscription_type_name: 'free',
         rate_limit_daily: 100,
         rate_limit_remaining: 100,
@@ -111,6 +131,40 @@ test.describe('POST /v2/auth — float-native envelope', () => {
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(Math.abs(body.data.rate_limit_remaining - (beforeRemaining - 1.0))).toBeLessThan(1e-9);
+  });
+
+  test('negative rate_limit_usage is coerced to 1.0', async ({ request }) => {
+    const before = await request.post('/v2/auth', {
+      data: { auth_key: KEYS.negative, auth_device: DEVICES.negative, rate_limit_usage: 1.0 },
+    });
+    const beforeRemaining = (await before.json()).data.rate_limit_remaining;
+
+    const res = await request.post('/v2/auth', {
+      data: { auth_key: KEYS.negative, auth_device: DEVICES.negative, rate_limit_usage: -3.5 },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Math.abs(body.data.rate_limit_remaining - (beforeRemaining - 1.0))).toBeLessThan(1e-9);
+  });
+
+  test('exhausted quota returns 429 with bilingual envelope', async ({ request }) => {
+    const res = await request.post('/v2/auth', {
+      data: { auth_key: KEYS.exhausted, auth_device: DEVICES.exhausted, rate_limit_usage: 1.0 },
+    });
+    expect(res.status()).toBe(429);
+    const body = await res.json();
+    expect(typeof body.error.en).toBe('string');
+    expect(typeof body.error.id).toBe('string');
+    expect(body.message).toBe(body.error.en);
+    // Atomic consume must not have decremented the row on the 429 path.
+    const remaining = await withDb(async (c) => {
+      const { rows } = await c.query<{ rate_limit_remaining: number }>(
+        'SELECT rate_limit_remaining FROM authentication_keys WHERE key = $1',
+        [KEYS.exhausted],
+      );
+      return rows[0].rate_limit_remaining;
+    });
+    expect(Math.abs(remaining - 0.5)).toBeLessThan(1e-9);
   });
 
   test('v1 envelope still returns integer rate_limit_remaining', async ({ request }) => {

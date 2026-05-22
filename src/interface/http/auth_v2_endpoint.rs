@@ -85,16 +85,7 @@ pub async fn auth_v2_endpoint(
     let start = std::time::Instant::now();
     let now = Utc::now();
 
-    // v2 coerces non-positive, NaN, or infinite usage to 1.0 — same
-    // edge-case shield as v1 but float-aware. Clients shipping `0`,
-    // `-1`, `NaN` for an unset field would otherwise either silently
-    // no-op the consume or get rejected by the value object.
-    let raw_usage = body.rate_limit_usage;
-    let usage_f = if raw_usage.is_nan() || raw_usage.is_infinite() || raw_usage <= 0.0 {
-        1.0
-    } else {
-        raw_usage
-    };
+    let usage_f = coerce_usage(body.rate_limit_usage);
 
     let key = match AuthKey::parse(body.auth_key.clone()) {
         Ok(k) => k,
@@ -199,6 +190,20 @@ pub async fn auth_v2_endpoint(
     }
 }
 
+/// Coerce raw request usage to a finite positive `f64`.
+///
+/// NaN, infinite, zero, and negative values collapse to `1.0` — same
+/// edge-case shield as v1, but float-aware. Clients shipping `0`,
+/// `-1`, or `NaN` for an unset field would otherwise silently no-op
+/// the consume or get rejected by `RateLimitUsage::new`.
+fn coerce_usage(raw: f64) -> f64 {
+    if raw.is_nan() || raw.is_infinite() || raw <= 0.0 {
+        1.0
+    } else {
+        raw
+    }
+}
+
 fn elapsed_us(start: std::time::Instant) -> u32 {
     let micros = start.elapsed().as_micros();
     if micros > u32::MAX as u128 {
@@ -261,6 +266,26 @@ fn internal_error_response() -> HttpResponse {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+
+    #[test]
+    fn coerce_usage_collapses_non_positive_and_non_finite_to_one() {
+        assert_eq!(coerce_usage(f64::NAN), 1.0);
+        assert_eq!(coerce_usage(f64::INFINITY), 1.0);
+        assert_eq!(coerce_usage(f64::NEG_INFINITY), 1.0);
+        assert_eq!(coerce_usage(0.0), 1.0);
+        assert_eq!(coerce_usage(-0.0), 1.0);
+        assert_eq!(coerce_usage(-1.0), 1.0);
+        assert_eq!(coerce_usage(-0.5), 1.0);
+    }
+
+    #[test]
+    fn coerce_usage_passes_through_finite_positive() {
+        assert_eq!(coerce_usage(1.0), 1.0);
+        assert_eq!(coerce_usage(0.5), 0.5);
+        assert_eq!(coerce_usage(2.75), 2.75);
+        assert_eq!(coerce_usage(f64::MIN_POSITIVE), f64::MIN_POSITIVE);
+        assert_eq!(coerce_usage(f64::MAX), f64::MAX);
+    }
 
     #[test]
     fn reason_str_maps_every_variant() {
