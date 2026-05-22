@@ -9,6 +9,7 @@ One Rust binary serves the admin dashboard (Leptos SSR + WASM hydration) and the
 - **Backend**: Rust · Actix-Web · SQLx
 - **Frontend**: [Leptos](https://leptos.dev) (SSR + WASM) · TailwindCSS
 - **Database**: PostgreSQL (migrations embedded via `build.rs`)
+- **Analytics store**: ClickHouse (migrations embedded via `build.rs`)
 - **Auth cache**: Moka in-memory LRU behind a domain port
 
 ## Quick start
@@ -33,7 +34,7 @@ Open <http://localhost:3000>.
 
 ## Public API
 
-`POST /v1/auth`
+### `POST /v1/auth`
 
 ```json
 {
@@ -42,6 +43,12 @@ Open <http://localhost:3000>.
   "rate_limit_usage": 1
 }
 ```
+
+`rate_limit_remaining` in the response is an integer (ceil-shimmed from internal `f64` storage). Envelope is **frozen**.
+
+### `POST /v2/auth`
+
+Same request shape, but `rate_limit_usage` is `f64` (fractional allowed). Response returns `rate_limit_remaining` as raw `f64`. Also emits a per-request analytics event to ClickHouse.
 
 | Status | Meaning                                                  |
 |--------|----------------------------------------------------------|
@@ -66,6 +73,8 @@ See [.env.example](.env.example). Required in every environment:
 | `AUTH_CACHE_TTL_SECONDS`| `900`           | Moka auth-cache TTL                              |
 | `COOKIE_SECURE`         | `true`          | Set to `false` only for plain-HTTP local dev     |
 | `WORKERS`               | `4`             | Actix worker threads                             |
+| `CLICKHOUSE_URL`        | —               | ClickHouse HTTP DSN (e.g. `http://clickhouse:8123/default`) |
+| `CLICKHOUSE_PASSWORD`   | —               | ClickHouse password                              |
 
 ## Makefile
 
@@ -97,8 +106,9 @@ src/
 └── ui/                  Leptos components organised by feature folder
     ├── design/          Tokens + primitives (Button, Input, Modal, DataTable, …)
     ├── shell/           Layout + nav
-    ├── keys/ subscriptions/ rate_limits/ dashboard/ admin_access/ marketing/
+    ├── keys/ subscriptions/ rate_limits/ dashboard/ admin_access/ analytics/ marketing/
 migrations/              SQL migrations (embedded into the binary)
+clickhouse/migrations/   ClickHouse migrations (embedded into the binary)
 tests/                   Rust integration tests (Postgres-backed harness)
 end2end/                 Playwright e2e suite
 ```

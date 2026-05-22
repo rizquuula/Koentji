@@ -11,9 +11,10 @@ Koentji is one Rust binary serving two surfaces from one Actix-Web process:
 | Surface                  | Consumer          | Shape                                                              |
 |--------------------------|-------------------|--------------------------------------------------------------------|
 | `POST /v1/auth`          | external apps     | Stable JSON envelope (200/401/429) — **byte-identical and frozen** |
-| Admin dashboard          | one privileged admin | Leptos SSR + WASM hydration; session-cookie auth                |
+| `POST /v2/auth`          | external apps     | Float-native envelope (`rate_limit_remaining: f64`); emits `AuthEvent` per request |
+| Admin dashboard          | one privileged admin | Leptos SSR + WASM hydration; session-cookie auth; includes `/analytics` page |
 
-They share one Postgres schema, one in-process Moka cache, and the same domain model. Nothing on the admin surface is allowed to destabilise the `/v1/auth` envelope.
+They share one Postgres schema, one in-process Moka cache, one ClickHouse analytics store, and the same domain model. Nothing on the admin surface is allowed to destabilise the `/v1/auth` envelope.
 
 ---
 
@@ -43,16 +44,18 @@ Dependencies point inward. **`domain/` knows nothing about frameworks.**
 │                      + IssuedKeyRepository port              │
 │                      + AuthCachePort port                    │
 │                      + AuditEventPort port                   │
+│                      + AuthEventSink port                    │
 │   admin_access/    — AdminCredentials, ConstantTime,         │
 │                      LoginAttemptLedger                      │
 └──────────────▲───────────────────────────────────────────────┘
                │ implements
 ┌──────────────┴───────────────────────────────────────────────┐
 │  infrastructure/                                             │
-│   postgres/  — IssuedKeyRepository, AuditEventRepository     │
-│   cache/     — MokaAuthCache                                 │
-│   hashing/   — Argon2Hasher                                  │
-│   telemetry/ — RequestId middleware, AccessLog JSON emitter  │
+│   postgres/    — IssuedKeyRepository, AuditEventRepository   │
+│   clickhouse/  — ClickHouseAuthEventSink                     │
+│   cache/       — MokaAuthCache                               │
+│   hashing/     — Argon2Hasher                                │
+│   telemetry/   — RequestId middleware, AccessLog JSON emitter│
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -148,6 +151,19 @@ Every one of these was a real finding in the pre-refactor audit (see `.claude-re
 ```
 
 `IssuedKey::authorize` is pure — no DB, no clock singleton (the caller passes `now`), no async. That's where the denial-priority rules live: revoked beats expired beats rate-limit, free-trial-expired beats rate-limit, rate-limit beats allowed. It has 36 unit tests covering clock boundaries and ledger arithmetic.
+
+---
+
+## 4b · Hot path — `POST /v2/auth`
+
+`/v2/auth` is a thin adapter in `interface/http/auth_v2_endpoint.rs` that mirrors v1 with two differences:
+
+1. **Float envelope.** `rate_limit_remaining` is `f64` — no ceil shim. Input `rate_limit_usage` is also `f64`; NaN, infinite, or non-positive collapses to `1.0`.
+2. **Analytics emit.** After responding, emits an `AuthEvent` to `Arc<dyn AuthEventSink>` (fire-and-forget). The emit happens after the response is built — it never blocks the caller. If the sink buffer is full the event is silently dropped.
+
+The same `AuthenticateApiKey` use case, the same `consume_quota` SQL, and the same cache are used. v1 is untouched; the two endpoints duplicate their response DTOs so they can evolve independently.
+
+**Why f64?** Rate-limit amounts are stored as `DOUBLE PRECISION` in Postgres (migration 006). This enables fractional usage — e.g. cost-weighted billing where one call costs 0.5 units. v1 casts the stored `f64` to `i64` via `ceil()` so its integer envelope stays byte-identical for existing consumers.
 
 ---
 
@@ -267,6 +283,40 @@ Indexes: `idx_audit_log_occurred_at` (recent-first scrolling) and a partial `idx
 
 JSONB payload so the schema can evolve without another migration.
 
+### ClickHouse — `auth_events`
+
+Migrations in `clickhouse/migrations/` run at server start via `clickhouse_db.rs`. Schema:
+
+```sql
+CREATE TABLE IF NOT EXISTS auth_events (
+  ts              DateTime64(3, 'UTC'),
+  auth_key_id     Int64,
+  auth_key        String,
+  device_id       String,
+  usage           Float64,
+  remaining_after Float64,
+  decision        Enum8('allowed' = 1, 'denied' = 2),
+  denial_reason   LowCardinality(String),
+  latency_us      UInt32
+) ENGINE = MergeTree
+PARTITION BY toYYYYMM(ts)
+ORDER BY (auth_key_id, ts)
+TTL toDateTime(ts) + INTERVAL 90 DAY;
+```
+
+Append-only. Written by `ClickHouseAuthEventSink` via a bounded mpsc channel (cap 10 000) with a background task that flushes batches of up to 1 000 events or every 1 s. Drops on overflow — never blocks the hot path. `NoopAuthEventSink` is used for tests and optional boot paths.
+
+---
+
+## 8b · Analytics read model
+
+The `/analytics` admin page reads aggregated data from ClickHouse via Leptos server functions in `src/server/analytics_service.rs`. It renders two charts server-side using `plotters` (SVG output):
+
+- **Requests-per-second timeseries** — bucket width depends on range: 1 m (24 h), 15 m (7 d), 1 h (30 d).
+- **Allow vs. deny totals** — counts per decision over the selected range.
+
+Charts are rendered as SVG strings in the server function and sent to the client as raw HTML. The page follows the same `Resource` + range signal pattern as the dashboard. Admin session gate reuses the `actix-session` `username` check.
+
 ---
 
 ## 9 · Frontend architecture
@@ -281,6 +331,7 @@ src/ui/
 ├── subscriptions/  page + form
 ├── rate_limits/    page + form
 ├── dashboard/      page + charts + date range picker + stats cards
+├── analytics/      page + plotters SVG charts (RPS timeseries + allow/deny totals)
 ├── admin_access/   login page
 └── marketing/      landing/about/terms/privacy/quickstart
 ```
@@ -384,7 +435,7 @@ Three layers, each with a job the others can't do.
 |------|----------------------------------------------------------------------------------------|---------------------------------------------------------------------|
 | 7.3  | `/metrics` Prometheus endpoint                                                          | No consuming stack yet. Add when a second caller appears.           |
 | N1   | Multi-user admin RBAC                                                                   | Single-admin is hardened; multi-user needs a table + role model.    |
-| N2   | Breaking changes to the `/v1/auth` envelope (typed `reason_code`, etc.)                | Would require `/v2/auth` — different project.                       |
+| N2   | Breaking changes to the `/v1/auth` envelope (typed `reason_code`, etc.)                | `/v2/auth` now exists; any v1 envelope change still prohibited.     |
 | N3   | Migration off Leptos SSR/WASM                                                           | —                                                                   |
 | N4   | Distributed auth cache / distributed login-attempt ledger / shared audit pipeline       | Needed for multi-replica; not in scope for single-replica.          |
 | N5   | FE⇄BE contract-test server                                                              | Unnecessary for a single-repo single-author surface.                |
@@ -396,7 +447,8 @@ Three layers, each with a job the others can't do.
 ## 13 · How this doc is meant to be used
 
 - **Reading code for the first time?** Start here, then jump to the file you were aiming for.
-- **About to change the `/v1/auth` envelope?** Stop. Read §4–§5, then propose `/v2/auth`.
+- **About to change the `/v1/auth` envelope?** Stop. Read §4–§5. `/v2/auth` already exists — evaluate whether your change belongs there instead.
+- **About to change the `/v2/auth` envelope?** Treat it as stable. Read §4b first.
 - **Adding a new admin verb?** Follow §6 — port method in `domain/`, impl in `infrastructure/postgres/`, use case in `application/`, thin Leptos server fn in `src/server/`.
 - **Adding a new UI primitive or token?** §9. Don't sprinkle raw Tailwind colours in feature code.
 - **Debugging a rate-limit race or quota leak?** §5.
