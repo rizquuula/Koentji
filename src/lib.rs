@@ -4,6 +4,8 @@ pub mod app;
 pub mod application;
 pub mod auth;
 #[cfg(feature = "ssr")]
+pub mod clickhouse_db;
+#[cfg(feature = "ssr")]
 pub mod db;
 pub mod domain;
 pub mod error;

@@ -68,6 +68,9 @@ async fn main() -> std::io::Result<()> {
     let pool = koentji::db::create_pool().await;
     koentji::db::run_migrations(&pool).await;
 
+    let ch_client = koentji::clickhouse_db::create_client().await;
+    koentji::clickhouse_db::run_migrations(&ch_client).await;
+
     let cache_ttl: u64 = std::env::var("AUTH_CACHE_TTL_SECONDS")
         .ok()
         .and_then(|s| s.parse().ok())

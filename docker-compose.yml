@@ -14,9 +14,38 @@ services:
       - FREE_TRIAL_KEY=${FREE_TRIAL_KEY:-FREE_TRIAL}
       - AUTH_CACHE_TTL_SECONDS=${AUTH_CACHE_TTL_SECONDS:-900}
       - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      - CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://koentji:koentji@clickhouse:8123/koentji}
     depends_on:
       db:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+
+  clickhouse:
+    container_name: koentji-clickhouse
+    image: clickhouse/clickhouse-server:24-alpine
+    environment:
+      CLICKHOUSE_DB: koentji
+      CLICKHOUSE_USER: koentji
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-koentji}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "${CH_PORT:-8123}:8123"
+    volumes:
+      - chdata:/var/lib/clickhouse
+      - ./clickhouse/config.d/low-mem.xml:/etc/clickhouse-server/config.d/low-mem.xml:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     env_file:
       - path: .env
         required: false
@@ -44,3 +73,4 @@ services:
 
 volumes:
   pgdata:
+  chdata:
