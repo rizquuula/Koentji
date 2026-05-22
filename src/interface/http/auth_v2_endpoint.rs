@@ -78,7 +78,7 @@ pub struct AuthV2Error {
 pub async fn auth_v2_endpoint(
     body: web::Json<AuthV2Request>,
     handler: web::Data<Arc<AuthenticateApiKey>>,
-    sink: web::Data<Arc<dyn AuthEventSink>>,
+    sink: web::Data<dyn AuthEventSink>,
 ) -> HttpResponse {
     log::debug!("Auth v2 request: device={}", body.auth_device);
 
@@ -91,7 +91,7 @@ pub async fn auth_v2_endpoint(
         Ok(k) => k,
         Err(_) => {
             emit_denied(
-                &sink,
+                sink.get_ref(),
                 now,
                 0,
                 body.auth_key.clone(),
@@ -107,7 +107,7 @@ pub async fn auth_v2_endpoint(
         Ok(d) => d,
         Err(_) => {
             emit_denied(
-                &sink,
+                sink.get_ref(),
                 now,
                 0,
                 body.auth_key.clone(),
@@ -160,7 +160,7 @@ pub async fn auth_v2_endpoint(
             let status = StatusCode::from_u16(status_code(&reason))
                 .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             emit_denied(
-                &sink,
+                sink.get_ref(),
                 now,
                 0,
                 body.auth_key.clone(),
@@ -176,7 +176,7 @@ pub async fn auth_v2_endpoint(
         }
         AuthOutcome::BackendError => {
             emit_denied(
-                &sink,
+                sink.get_ref(),
                 now,
                 0,
                 body.auth_key.clone(),
@@ -215,7 +215,7 @@ fn elapsed_us(start: std::time::Instant) -> u32 {
 
 #[allow(clippy::too_many_arguments)]
 fn emit_denied(
-    sink: &Arc<dyn AuthEventSink>,
+    sink: &dyn AuthEventSink,
     now: chrono::DateTime<Utc>,
     auth_key_id: i64,
     auth_key: String,
