@@ -34,6 +34,7 @@ pub fn Layout(
     };
 
     let dashboard_class = nav_class("dashboard");
+    let analytics_class = nav_class("analytics");
     let keys_class = nav_class("keys");
     let subscriptions_class = nav_class("subscriptions");
     let rate_limits_class = nav_class("limits_interval");
@@ -63,6 +64,7 @@ pub fn Layout(
                                 <Suspense fallback=|| ()>
                                     <Show when=is_logged_in>
                                         <a href="/dashboard" class=dashboard_class>"Dashboard"</a>
+                                        <a href="/analytics" class=analytics_class>"Analytics"</a>
                                         <a href="/keys" class=keys_class>"Keys"</a>
                                         <a href="/subscriptions" class=subscriptions_class>"Subscriptions"</a>
                                         <a href="/limits-interval" class=rate_limits_class>"Limits Interval"</a>

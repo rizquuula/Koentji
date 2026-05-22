@@ -6,6 +6,7 @@
 //! token-backed primitive library) and `shell/` (the nav + layout frame).
 
 pub mod admin_access;
+pub mod analytics;
 pub mod dashboard;
 pub mod design;
 pub mod keys;

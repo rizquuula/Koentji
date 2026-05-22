@@ -139,6 +139,7 @@ async fn main() -> std::io::Result<()> {
     ));
 
     let auth_event_sink_data = auth_event_sink.clone();
+    let ch_client_data = ch_client.clone();
     let login_ledger = std::sync::Arc::new(LoginAttemptLedger::new(LockoutPolicy::default_admin()));
 
     let secret_key = std::env::var("SECRET_KEY").unwrap_or_else(|_| {
@@ -201,6 +202,7 @@ async fn main() -> std::io::Result<()> {
         let cache_port_data = auth_cache_port.clone();
         let login_ledger = login_ledger.clone();
         let auth_event_sink = auth_event_sink_data.clone();
+        let ch_client = ch_client_data.clone();
 
         actix_web::App::new()
             .app_data(web::Data::new(auth_handler))
@@ -212,6 +214,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(extend_expiration))
             .app_data(web::Data::new(cache_port_data))
             .app_data(web::Data::new(login_ledger))
+            .app_data(web::Data::new(ch_client))
             .service(auth_endpoint)
             .service(auth_v2_endpoint)
             .service(healthz)

@@ -1,4 +1,5 @@
 use crate::ui::admin_access::LoginPage;
+use crate::ui::analytics::AnalyticsPage;
 use crate::ui::dashboard::DashboardPage;
 use crate::ui::design::toast::provide_toast_context;
 use crate::ui::keys::KeysPage;
@@ -27,6 +28,7 @@ pub fn App() -> impl IntoView {
             <Routes fallback=|| view! { <NotFound/> }>
                 <Route path=path!("/login") view=LoginPage/>
                 <Route path=path!("/dashboard") view=DashboardPage/>
+                <Route path=path!("/analytics") view=AnalyticsPage/>
                 <Route path=path!("/keys") view=KeysPage/>
                 <Route path=path!("/subscriptions") view=SubscriptionsPage/>
                 <Route path=path!("/limits-interval") view=LimitsIntervalPage/>
