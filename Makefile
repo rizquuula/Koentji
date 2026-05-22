@@ -1,4 +1,4 @@
-.PHONY: help dev run build fmt fmt-check clippy test test-rust test-e2e test-e2e-install check clean migrate db-create db-reset docker-up docker-down docker-up-db docker-logs docker-pull tailwind refactor-status refactor-next hash-admin-password
+.PHONY: help dev run build fmt fmt-check clippy test test-rust test-e2e test-e2e-install check clean migrate db-create db-reset docker-up docker-up-local docker-down docker-up-db docker-logs docker-pull tailwind refactor-status refactor-next hash-admin-password
 
 -include .env
 export
@@ -8,8 +8,17 @@ export
 ## Help
 help: ## Show this help message
 	@echo "Usage: make [target]"
-	@echo ""
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@awk ' \
+		/^## / { \
+			header = substr($$0, 4); \
+			printf "\n\033[1;33m%s\033[0m\n", header; \
+			next; \
+		} \
+		/^[a-zA-Z0-9_-]+:.*?## / { \
+			split($$0, parts, ":.*?## "); \
+			printf "  \033[36m%-22s\033[0m %s\n", parts[1], parts[2]; \
+		} \
+	' $(firstword $(MAKEFILE_LIST))
 
 ## Development
 dev: ## Run dev server with cargo leptos watch
@@ -75,6 +84,9 @@ clean: ## Clean build artifacts
 ## Docker
 docker-up: ## Start all containers
 	docker compose up -d
+
+docker-up-local: ## Build local image (koentji:local) and start all containers
+	APP_IMAGE=koentji:local docker compose up -d --build
 
 docker-up-db: ## Start only the database container (port 5432 exposed)
 	docker compose up -d db

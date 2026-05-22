@@ -1,7 +1,7 @@
 services:
   app:
     container_name: koentji-app
-    image: ghcr.io/rizquuula/koentji:latest
+    image: ${APP_IMAGE:-ghcr.io/rizquuula/koentji:latest}
     build: .
     ports:
       - "${APP_PORT:-3000}:3000"
