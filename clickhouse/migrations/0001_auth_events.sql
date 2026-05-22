@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS auth_events (
   ts            DateTime64(3, 'UTC'),
-  auth_key_id   UUID,
+  auth_key_id   Int64,
   auth_key      String,
   device_id     String,
   usage         Float64,

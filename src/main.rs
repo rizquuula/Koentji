@@ -71,6 +71,13 @@ async fn main() -> std::io::Result<()> {
     let ch_client = koentji::clickhouse_db::create_client().await;
     koentji::clickhouse_db::run_migrations(&ch_client).await;
 
+    let auth_event_sink: std::sync::Arc<dyn koentji::domain::authentication::AuthEventSink> =
+        std::sync::Arc::new(
+            koentji::infrastructure::clickhouse::auth_event_sink::ClickHouseAuthEventSink::spawn(
+                ch_client.clone(),
+            ),
+        );
+
     let cache_ttl: u64 = std::env::var("AUTH_CACHE_TTL_SECONDS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -115,6 +122,7 @@ async fn main() -> std::io::Result<()> {
         audit_port.clone(),
     ));
 
+    let auth_event_sink_data = auth_event_sink.clone();
     let login_ledger = std::sync::Arc::new(LoginAttemptLedger::new(LockoutPolicy::default_admin()));
 
     let secret_key = std::env::var("SECRET_KEY").unwrap_or_else(|_| {
@@ -176,9 +184,11 @@ async fn main() -> std::io::Result<()> {
         let extend_expiration = extend_expiration.clone();
         let cache_port_data = auth_cache_port.clone();
         let login_ledger = login_ledger.clone();
+        let auth_event_sink = auth_event_sink_data.clone();
 
         actix_web::App::new()
             .app_data(web::Data::new(auth_handler))
+            .app_data(web::Data::from(auth_event_sink))
             .app_data(web::Data::new(issue_key))
             .app_data(web::Data::new(revoke_key))
             .app_data(web::Data::new(reassign_device))

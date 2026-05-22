@@ -8,6 +8,8 @@
 pub mod audit_event_port;
 pub mod auth_cache_port;
 pub mod auth_decision;
+pub mod auth_event;
+pub mod auth_event_sink;
 pub mod auth_key;
 pub mod device_id;
 pub mod events;
@@ -21,6 +23,8 @@ pub use audit_event_port::AuditEventPort;
 #[cfg(feature = "ssr")]
 pub use auth_cache_port::AuthCachePort;
 pub use auth_decision::{AuthDecision, DenialReason};
+pub use auth_event::{AuthEvent, AuthEventDecision};
+pub use auth_event_sink::{AuthEventSink, NoopAuthEventSink};
 pub use auth_key::AuthKey;
 pub use device_id::DeviceId;
 pub use events::DomainEvent;

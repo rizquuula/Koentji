@@ -9,6 +9,7 @@
 #![cfg(feature = "ssr")]
 
 pub mod cache;
+pub mod clickhouse;
 pub mod hashing;
 pub mod postgres;
 pub mod telemetry;
