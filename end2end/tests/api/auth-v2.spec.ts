@@ -6,7 +6,7 @@
 // v1 envelope (integer rate_limit_remaining) must keep its shape after a
 // v2 hit on the same key.
 import { test, expect } from '@playwright/test';
-import { withDb, insertKey } from '../../fixtures/db';
+import { withDb, insertKey, setRateLimitRemaining } from '../../fixtures/db';
 
 const PREFIX = 'e2e_v2_';
 const KEYS = {
@@ -45,14 +45,18 @@ test.describe('POST /v2/auth — float-native envelope', () => {
         rate_limit_remaining: 100,
       });
       // Sub-1.0 remaining so a usage=1.0 request trips the atomic
-      // consume's `remaining > usage` guard and yields 429.
-      await insertKey(c, {
+      // consume's `remaining > usage` guard and yields 429. Use
+      // setRateLimitRemaining to also stamp rate_limit_updated_at so
+      // the interval-reset branch doesn't refill the bucket to
+      // rate_limit_daily on the first hit.
+      const exhausted = await insertKey(c, {
         key: KEYS.exhausted,
         device_id: DEVICES.exhausted,
         subscription_type_name: 'free',
         rate_limit_daily: 100,
-        rate_limit_remaining: 0.5,
+        rate_limit_remaining: 100,
       });
+      await setRateLimitRemaining(c, exhausted.id, 0.5);
       await insertKey(c, {
         key: KEYS.negative,
         device_id: DEVICES.negative,

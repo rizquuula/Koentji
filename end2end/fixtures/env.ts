@@ -27,8 +27,12 @@ export const SECRET_KEY =
 export const STORAGE_STATE_PATH = path.resolve(__dirname, '..', 'storage', 'admin.json');
 export const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
+export const CLICKHOUSE_URL =
+  process.env.E2E_CLICKHOUSE_URL ?? 'http://koentji:koentji@127.0.0.1:8123/koentji';
+
 export const SERVER_ENV: Record<string, string> = {
   DATABASE_URL,
+  CLICKHOUSE_URL,
   LEPTOS_SITE_ADDR: `${E2E_HOST}:${E2E_PORT}`,
   LEPTOS_RELOAD_PORT: String(E2E_PORT + 1),
   ADMIN_USERNAME,
