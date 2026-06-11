@@ -1,8 +1,15 @@
 <clickhouse>
-  <max_server_memory_usage>536870912</max_server_memory_usage>
-  <mark_cache_size>134217728</mark_cache_size>
+  <listen_host>0.0.0.0</listen_host>
+  <max_server_memory_usage>1073741824</max_server_memory_usage>
+  <mark_cache_size>67108864</mark_cache_size>
   <uncompressed_cache_size>0</uncompressed_cache_size>
   <max_concurrent_queries>20</max_concurrent_queries>
   <background_pool_size>16</background_pool_size>
   <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+  <metric_log remove="1"/>
+  <asynchronous_metric_log remove="1"/>
+  <query_log remove="1"/>
+  <query_thread_log remove="1"/>
+  <trace_log remove="1"/>
+  <part_log remove="1"/>
 </clickhouse>

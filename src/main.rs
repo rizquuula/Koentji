@@ -77,7 +77,10 @@ async fn main() -> std::io::Result<()> {
     use koentji::infrastructure::telemetry::{AccessLog, RequestIdMiddleware};
 
     dotenvy::dotenv().ok();
-    env_logger::init();
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info,sqlx=warn,hyper=warn"),
+    )
+    .init();
 
     log::info!("Starting Koentji server...");
 

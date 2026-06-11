@@ -31,7 +31,7 @@ RUN cargo leptos build --release
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libssl3 curl \
+    && apt-get install -y --no-install-recommends ca-certificates libssl3 curl libfontconfig1 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 1001 koentji \
     && useradd  --system --uid 1001 --gid koentji --home-dir /app --shell /usr/sbin/nologin koentji
