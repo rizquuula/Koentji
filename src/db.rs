@@ -83,10 +83,9 @@ pub async fn run_migrations(pool: &PgPool) {
     .await
     .expect("Failed to create schema_migrations table");
 
-    log::info!(
-        "Postgres: checking {} embedded migration(s)",
-        MIGRATIONS.len()
-    );
+    let total = MIGRATIONS.len();
+
+    log::info!("Postgres: checking {total} embedded migration(s)");
 
     let mut applied = 0usize;
     let mut skipped = 0usize;
@@ -102,20 +101,16 @@ pub async fn run_migrations(pool: &PgPool) {
 
         if already_applied {
             log::info!(
-                "Postgres migration [{}/{}] already applied: {}",
-                idx + 1,
-                MIGRATIONS.len(),
-                filename
+                "Postgres migration [{}/{total}] already applied: {filename}",
+                idx + 1
             );
             skipped += 1;
             continue;
         }
 
         log::info!(
-            "Postgres migration [{}/{}] applying: {}",
-            idx + 1,
-            MIGRATIONS.len(),
-            filename
+            "Postgres migration [{}/{total}] applying: {filename}",
+            idx + 1
         );
         sqlx::raw_sql(sql)
             .execute(pool)
@@ -129,18 +124,13 @@ pub async fn run_migrations(pool: &PgPool) {
             .unwrap_or_else(|e| panic!("Failed to record migration {}: {}", filename, e));
 
         log::info!(
-            "Postgres migration [{}/{}] applied: {}",
-            idx + 1,
-            MIGRATIONS.len(),
-            filename
+            "Postgres migration [{}/{total}] applied: {filename}",
+            idx + 1
         );
         applied += 1;
     }
 
     log::info!(
-        "Postgres migrations done: {} newly applied, {} already present ({} total)",
-        applied,
-        skipped,
-        MIGRATIONS.len()
+        "Postgres migrations done: {applied} newly applied, {skipped} already present ({total} total)"
     );
 }
