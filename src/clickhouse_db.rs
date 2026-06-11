@@ -89,6 +89,7 @@ pub async fn run_migrations(client: &clickhouse::Client) {
 
     let mut applied = 0usize;
     let mut skipped = 0usize;
+    let mut errored = 0usize;
     let total = CLICKHOUSE_MIGRATIONS.len();
 
     for (idx, (filename, sql)) in CLICKHOUSE_MIGRATIONS.iter().enumerate() {
@@ -101,20 +102,28 @@ pub async fn run_migrations(client: &clickhouse::Client) {
             Ok(c) => c,
             Err(e) => {
                 log::error!("ClickHouse: failed to check migration {filename}: {e}");
+                errored += 1;
                 continue;
             }
         };
 
         if count > 0 {
-            log::info!("ClickHouse migration [{}/{total}] already applied: {filename}", idx + 1);
+            log::info!(
+                "ClickHouse migration [{}/{total}] already applied: {filename}",
+                idx + 1
+            );
             skipped += 1;
             continue;
         }
 
-        log::info!("ClickHouse migration [{}/{total}] applying: {filename}", idx + 1);
+        log::info!(
+            "ClickHouse migration [{}/{total}] applying: {filename}",
+            idx + 1
+        );
 
         if let Err(e) = client.query(sql).execute().await {
             log::error!("ClickHouse: failed to apply migration {filename}: {e}");
+            errored += 1;
             continue;
         }
 
@@ -123,14 +132,21 @@ pub async fn run_migrations(client: &clickhouse::Client) {
             filename.replace('\'', "\\'")
         );
         if let Err(e) = client.query(&insert_sql).execute().await {
+            // DDL ran but bookkeeping failed: the migration will re-run on the
+            // next startup. Count it as errored, not applied, so the summary
+            // reflects that the schema_migrations record is missing.
             log::error!("ClickHouse: failed to record migration {filename}: {e}");
+            errored += 1;
         } else {
-            log::info!("ClickHouse migration [{}/{total}] applied: {filename}", idx + 1);
+            log::info!(
+                "ClickHouse migration [{}/{total}] applied: {filename}",
+                idx + 1
+            );
             applied += 1;
         }
     }
 
     log::info!(
-        "ClickHouse migrations done: {applied} newly applied, {skipped} already present ({total} total)"
+        "ClickHouse migrations done: {applied} newly applied, {skipped} already present, {errored} errored ({total} total)"
     );
 }
