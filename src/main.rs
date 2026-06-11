@@ -12,7 +12,7 @@ use koentji::interface::http::auth_v2_endpoint::{
     auth_v2_endpoint, AuthV2Error, AuthV2Request, AuthV2Response, AuthV2ResponseData,
 };
 #[cfg(feature = "ssr")]
-use koentji::interface::http::health::{healthz, readyz};
+use koentji::interface::http::health::{healthz, readyz, version};
 
 #[cfg(feature = "ssr")]
 #[derive(OpenApi)]
@@ -222,6 +222,7 @@ async fn main() -> std::io::Result<()> {
             .service(auth_v2_endpoint)
             .service(healthz)
             .service(readyz)
+            .service(version)
             .service(
                 web::resource("/docs").route(web::get().to(|| async {
                     actix_web::HttpResponse::PermanentRedirect()

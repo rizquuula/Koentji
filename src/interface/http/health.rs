@@ -66,6 +66,16 @@ async fn check_database(pool: &PgPool) -> Result<(), &'static str> {
     }
 }
 
+#[actix_web::get("/version")]
+pub async fn version() -> impl Responder {
+    HttpResponse::Ok()
+        .content_type("application/json")
+        .body(format!(
+            r#"{{"version":"{}"}}"#,
+            env!("CARGO_PKG_VERSION")
+        ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
