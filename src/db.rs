@@ -83,7 +83,15 @@ pub async fn run_migrations(pool: &PgPool) {
     .await
     .expect("Failed to create schema_migrations table");
 
-    for (filename, sql) in MIGRATIONS {
+    log::info!(
+        "Postgres: checking {} embedded migration(s)",
+        MIGRATIONS.len()
+    );
+
+    let mut applied = 0usize;
+    let mut skipped = 0usize;
+
+    for (idx, (filename, sql)) in MIGRATIONS.iter().enumerate() {
         let already_applied: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = $1)",
         )
@@ -93,11 +101,22 @@ pub async fn run_migrations(pool: &PgPool) {
         .expect("Failed to query schema_migrations");
 
         if already_applied {
-            log::debug!("Migration already applied, skipping: {}", filename);
+            log::info!(
+                "Postgres migration [{}/{}] already applied: {}",
+                idx + 1,
+                MIGRATIONS.len(),
+                filename
+            );
+            skipped += 1;
             continue;
         }
 
-        log::info!("Running migration: {}", filename);
+        log::info!(
+            "Postgres migration [{}/{}] applying: {}",
+            idx + 1,
+            MIGRATIONS.len(),
+            filename
+        );
         sqlx::raw_sql(sql)
             .execute(pool)
             .await
@@ -109,6 +128,19 @@ pub async fn run_migrations(pool: &PgPool) {
             .await
             .unwrap_or_else(|e| panic!("Failed to record migration {}: {}", filename, e));
 
-        log::info!("Migration applied: {}", filename);
+        log::info!(
+            "Postgres migration [{}/{}] applied: {}",
+            idx + 1,
+            MIGRATIONS.len(),
+            filename
+        );
+        applied += 1;
     }
+
+    log::info!(
+        "Postgres migrations done: {} newly applied, {} already present ({} total)",
+        applied,
+        skipped,
+        MIGRATIONS.len()
+    );
 }

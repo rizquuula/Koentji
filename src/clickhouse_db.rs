@@ -82,7 +82,16 @@ pub async fn run_migrations(client: &clickhouse::Client) {
         return;
     }
 
-    for (filename, sql) in CLICKHOUSE_MIGRATIONS {
+    log::info!(
+        "ClickHouse: checking {} embedded migration(s)",
+        CLICKHOUSE_MIGRATIONS.len()
+    );
+
+    let mut applied = 0usize;
+    let mut skipped = 0usize;
+    let total = CLICKHOUSE_MIGRATIONS.len();
+
+    for (idx, (filename, sql)) in CLICKHOUSE_MIGRATIONS.iter().enumerate() {
         let check = format!(
             "SELECT count() FROM schema_migrations WHERE filename = '{}'",
             filename.replace('\'', "\\'")
@@ -97,11 +106,12 @@ pub async fn run_migrations(client: &clickhouse::Client) {
         };
 
         if count > 0 {
-            log::info!("ClickHouse migration already applied: {filename}");
+            log::info!("ClickHouse migration [{}/{total}] already applied: {filename}", idx + 1);
+            skipped += 1;
             continue;
         }
 
-        log::info!("ClickHouse: applying migration {filename}");
+        log::info!("ClickHouse migration [{}/{total}] applying: {filename}", idx + 1);
 
         if let Err(e) = client.query(sql).execute().await {
             log::error!("ClickHouse: failed to apply migration {filename}: {e}");
@@ -115,7 +125,12 @@ pub async fn run_migrations(client: &clickhouse::Client) {
         if let Err(e) = client.query(&insert_sql).execute().await {
             log::error!("ClickHouse: failed to record migration {filename}: {e}");
         } else {
-            log::info!("ClickHouse migration applied: {filename}");
+            log::info!("ClickHouse migration [{}/{total}] applied: {filename}", idx + 1);
+            applied += 1;
         }
     }
+
+    log::info!(
+        "ClickHouse migrations done: {applied} newly applied, {skipped} already present ({total} total)"
+    );
 }
