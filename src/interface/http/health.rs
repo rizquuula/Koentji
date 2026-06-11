@@ -68,12 +68,12 @@ async fn check_database(pool: &PgPool) -> Result<(), &'static str> {
 
 #[actix_web::get("/version")]
 pub async fn version() -> impl Responder {
+    // The body is fully known at compile time (CARGO_PKG_VERSION is a &'static
+    // str), so bake it into a const literal rather than allocating per request.
+    const BODY: &str = concat!(r#"{"version":""#, env!("CARGO_PKG_VERSION"), r#""}"#);
     HttpResponse::Ok()
         .content_type("application/json")
-        .body(format!(
-            r#"{{"version":"{}"}}"#,
-            env!("CARGO_PKG_VERSION")
-        ))
+        .body(BODY)
 }
 
 #[cfg(test)]
