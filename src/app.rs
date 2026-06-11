@@ -55,7 +55,7 @@ fn NotFound() -> impl IntoView {
             <div class="text-center">
                 <h1 class="text-6xl font-bold text-gray-300">"404"</h1>
                 <p class="mt-4 text-gray-500">"Page not found"</p>
-                <a href="/dashboard" class="mt-4 inline-block text-blue-600 hover:text-blue-800">"Go to Dashboard"</a>
+                <a href="/dashboard" rel="external" class="mt-4 inline-block text-blue-600 hover:text-blue-800">"Go to Dashboard"</a>
             </div>
         </div>
     }
