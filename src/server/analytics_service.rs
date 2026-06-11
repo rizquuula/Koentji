@@ -94,7 +94,11 @@ pub async fn get_requests_per_second(range: AnalyticsRange) -> Result<RpsResult,
 
     let rows: Vec<TimeBucketRow> = client
         .query(
-            "SELECT toUnixTimestamp64Milli(toStartOfInterval(ts, INTERVAL ? second)) AS ts_unix_ms,
+            // `toStartOfInterval(DateTime64, INTERVAL n second)` returns a
+            // plain `DateTime` in ClickHouse 24.x, which `toUnixTimestamp64Milli`
+            // rejects (it wants a `DateTime64`). Buckets are whole-second
+            // aligned anyway, so take epoch seconds and scale to ms.
+            "SELECT toInt64(toUnixTimestamp(toStartOfInterval(ts, INTERVAL ? second))) * 1000 AS ts_unix_ms,
                     count() AS count
              FROM auth_events
              WHERE ts >= now() - INTERVAL ? second
