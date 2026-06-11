@@ -6,9 +6,8 @@ Short, code-adjacent guide for coding agents. For the deep dive, see [ARCHITECTU
 
 One Rust binary serving two surfaces:
 
-1. **`POST /v1/auth`** — public API. External apps send `{ auth_key, auth_device, rate_limit_usage }` and get back a `{ subscription, rate_limit_* }` envelope (200/401/429). Envelope is stable and bilingual (en/id error messages).
-2. **`POST /v2/auth`** — float-native variant. Same use case; `rate_limit_remaining` is raw `f64` (no ceil shim). Also emits an `AuthEvent` to the `AuthEventSink` per request for analytics.
-3. **Admin dashboard** — Leptos SSR + WASM hydration. Admin issues / revokes / reassigns keys, manages subscription tiers and rate-limit intervals, and views the `/analytics` page (RPS + allow/deny charts backed by ClickHouse).
+1. **`POST /v1/auth`** — public API. External apps send `{ auth_key, auth_device, rate_limit_usage }` and get back a `{ subscription, rate_limit_* }` envelope (200/401/429). Envelope is stable and bilingual (en/id error messages). `rate_limit_usage` is accepted as `f64` (fractional consume allowed; integer input still deserialises). `rate_limit_remaining` in the response is an integer (ceil shim). Every request emits an `AuthEvent` to the `AuthEventSink` for analytics.
+2. **Admin dashboard** — Leptos SSR + WASM hydration. Admin issues / revokes / reassigns keys, manages subscription tiers and rate-limit intervals, and views the `/analytics` page (RPS + allow/deny charts backed by ClickHouse).
 
 Both share one Postgres + one Moka auth cache + one ClickHouse analytics store.
 
@@ -72,7 +71,7 @@ src/
 │   └── errors.rs
 │
 ├── application/                  One file per use case
-│   ├── authenticate_api_key.rs   The /v1/auth + /v2/auth shared use case
+│   ├── authenticate_api_key.rs   The /v1/auth use case
 │   ├── issue_key.rs / revoke_key.rs / reassign_device.rs
 │   ├── reset_rate_limit.rs / extend_expiration.rs
 │
@@ -87,8 +86,7 @@ src/
 │   └── telemetry/                     Request-id middleware, access log
 │
 ├── interface/http/
-│   ├── auth_endpoint.rs          Thin /v1/auth adapter (integer envelope)
-│   ├── auth_v2_endpoint.rs       Thin /v2/auth adapter (float envelope + sink emit)
+│   ├── auth_endpoint.rs          Thin /v1/auth adapter (f64 usage in, integer envelope out, sink emit)
 │   ├── i18n.rs                   DenialReason → {en, id} mapping
 │   └── health.rs                 /healthz (liveness) + /readyz (pool ping)
 │
@@ -110,21 +108,15 @@ clickhouse/
 
 ## Hot-path flow (`POST /v1/auth`)
 
-1. `interface/http/auth_endpoint.rs` parses into `AuthKey` + `DeviceId`.
+1. `interface/http/auth_endpoint.rs` parses into `AuthKey` + `DeviceId`. `rate_limit_usage` is coerced float-aware: NaN, infinite, or non-positive collapses to `1.0`.
 2. `application::AuthenticateApiKey` checks the `AuthCachePort`; on miss it calls `IssuedKeyRepository::find`.
 3. If the row is missing and the `auth_key == FREE_TRIAL_KEY`, it tries `claim_free_trial` (inserts/rebinds a row with expiry on the 1st of next month UTC).
 4. `IssuedKey::authorize(usage, now)` returns `AuthDecision::Allowed(snapshot) | Denied(reason)` — **pure domain logic, testable without a DB.**
 5. On `Allowed`, `IssuedKeyRepository::consume_quota` runs a single atomic `UPDATE … RETURNING` that decides reset-vs-decrement in SQL (no read-modify-write race).
-6. `DenialEnvelope::from_reason` renders a byte-identical `{ error: { en, id }, message }` envelope.
+6. The success envelope renders `rate_limit_remaining` as an integer (ceil shim — a fractional remainder must not round down to 0 and read as "exhausted"). `DenialEnvelope::from_reason` renders a byte-identical `{ error: { en, id }, message }` envelope on denial.
+7. On every path (allow / deny / backend error), emits an `AuthEvent` to the `AuthEventSink` (fire-and-forget — drops on buffer full, never blocks the caller). The event carries the true `f64` usage and remaining, even though the wire envelope ceils the remaining away.
 
-**The envelope is stable.** Any change there is a breaking change and needs a `/v2/auth`.
-
-## Hot-path flow (`POST /v2/auth`)
-
-1. `interface/http/auth_v2_endpoint.rs` parses into `AuthKey` + `DeviceId`. Usage coercion is float-aware: NaN, infinite, or non-positive collapses to `1.0`.
-2. Invokes the same `application::AuthenticateApiKey` use case as v1 — same cache, same ledger, same `IssuedKey::authorize`.
-3. On `Allowed`, `consume_quota` runs identically. Response envelope wraps `rate_limit_remaining` as raw `f64` (no ceil shim).
-4. After responding, emits an `AuthEvent` to the `AuthEventSink` (fire-and-forget — drops on buffer full, never blocks the caller). v1 does **not** emit events.
+**The envelope is stable.** Any change to the wire shape (fields, error keys, status codes, the integer `rate_limit_remaining`) is a breaking change and needs a new versioned endpoint.
 
 ## Admin verb flow
 
@@ -135,9 +127,9 @@ Use cases live in `application/` and compose three ports: `IssuedKeyRepository` 
 ## Key design decisions
 
 - **Envelope stability over envelope purity.** The `/v1/auth` JSON shape is frozen — `interface/http/i18n.rs` renders legacy en/id strings byte-for-byte.
-- **v1 envelope stable, v2 introduced for float.** v1 still returns integer `rate_limit_remaining` (ceil shim); v2 returns raw `f64`. They share the same use case but duplicate response DTOs so they can evolve independently.
+- **Float in, integer out.** `rate_limit_usage` is accepted as `f64` so callers may consume fractional units, but the response keeps the frozen integer `rate_limit_remaining` (ceil shim). Widening the request field from `i32` to `f64` is backward-compatible: JSON `1` deserialises straight into `1.0`. The ledger stores the exact `f64`; only the wire envelope ceils.
 - **Atomic rate-limit consume.** One `UPDATE … SET remaining = GREATEST(remaining - $usage, 0) WHERE remaining > $usage RETURNING …`. If the `RETURNING` is empty, it's a 429.
-- **Per-request analytics in ClickHouse, not Postgres.** Bounded mpsc (10 000) + 1 000/1 s batch flush; drops on overflow; never blocks the hot path. Only `/v2/auth` emits events; v1 is unaffected.
+- **Per-request analytics in ClickHouse, not Postgres.** Bounded mpsc (10 000) + 1 000/1 s batch flush; drops on overflow; never blocks the hot path. `/v1/auth` emits on every request (allow / deny / backend error).
 - **Free-trial marker**, not a dedicated endpoint. Sending `auth_key == FREE_TRIAL_KEY` on an unknown `(key, device)` pair auto-provisions a row expiring on the 1st of next month UTC.
 - **Unclaimed device sentinel.** `device_id = '-'` means "pre-issued, not yet bound." First call with that key adopts the sentinel row for the caller's real device.
 - **Single-admin, in-memory lockout.** `LoginAttemptLedger` is a per-process sliding window (5 failures / 5 min) — fine for single-replica. Multi-replica would need Redis or equivalent.
@@ -196,8 +188,7 @@ make refactor-status        # staged DDD remediation progress
 
 ## When editing
 
-- **`/v1/auth` envelope**: never change fields, never rename error keys, never change status codes. If you must, open a `/v2/auth`.
-- **`/v2/auth` envelope** is new but should also be treated as stable. Don't reshape it casually.
+- **`/v1/auth` envelope**: never change response fields, never rename error keys, never change status codes, never widen `rate_limit_remaining` past integer. If you must, open a new versioned endpoint. (Widening the *request* `rate_limit_usage` to `f64` was safe because integer JSON still deserialises.)
 - **Domain layer**: keep it framework-free. Add a port before you add an import.
 - **`make check` must stay green**, including `clippy -D warnings`. If a lint is wrong for the context, add a scoped `#[allow]` with a one-line reason — don't relax the Makefile.
 - **Commits**: one feature per commit; conventional prefix (`feat|fix|tec|test|docs|chore`); domain vocabulary in the message.

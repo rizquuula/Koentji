@@ -7,7 +7,5 @@
 #[cfg(feature = "ssr")]
 pub mod auth_endpoint;
 #[cfg(feature = "ssr")]
-pub mod auth_v2_endpoint;
-#[cfg(feature = "ssr")]
 pub mod health;
 pub mod i18n;

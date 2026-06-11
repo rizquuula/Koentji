@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-/// One observable `/v2/auth` outcome, ready for downstream analytics
+/// One observable `/v1/auth` outcome, ready for downstream analytics
 /// storage. Fire-and-forget: emitting must never block the hot path.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthEvent {

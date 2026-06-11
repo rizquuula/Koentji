@@ -44,11 +44,7 @@ Open <http://localhost:3000>.
 }
 ```
 
-`rate_limit_remaining` in the response is an integer (ceil-shimmed from internal `f64` storage). Envelope is **frozen**.
-
-### `POST /v2/auth`
-
-Same request shape, but `rate_limit_usage` is `f64` (fractional allowed). Response returns `rate_limit_remaining` as raw `f64`. Also emits a per-request analytics event to ClickHouse.
+`rate_limit_usage` is accepted as `f64`, so fractional consume is allowed (`1` still works — integer JSON deserialises into `1.0`). `rate_limit_remaining` in the response is an integer (ceil-shimmed from internal `f64` storage). Every request also emits a per-request analytics event to ClickHouse. Envelope is **frozen**.
 
 | Status | Meaning                                                  |
 |--------|----------------------------------------------------------|

@@ -1,21 +1,23 @@
-// Unclaimed device sentinel adoption via /v2/auth.
+// Unclaimed device sentinel adoption via /v1/auth, exercised with
+// fractional usage.
 //
-// Mirrors unclaimed-device.spec.ts (G3) but exercises the float-native
-// endpoint. Both endpoints share AuthenticateApiKey, so the sentinel
-// rebind path (claim_free_trial Branch B) must work identically here.
+// Mirrors unclaimed-device.spec.ts (G3) but drives a fractional consume
+// through the merged endpoint. The HTTP envelope ceils `rate_limit_remaining`
+// to an integer, so the exact post-decrement remainder (99.75) is asserted
+// against the Postgres ledger, not the response body.
 import { test, expect } from '@playwright/test';
 import { withDb, insertKey, countKeysByKey } from '../../fixtures/db';
 
-const PREFIX = 'e2e_v2sent_';
+const PREFIX = 'e2e_v1sent_';
 const KEY = `${PREFIX}unclaimed_key`;
 const REAL_DEVICE = `${PREFIX}unclaimed_dev_real`;
 const OTHER_DEVICE = `${PREFIX}unclaimed_dev_other`;
 
-test.describe('POST /v2/auth — unclaimed sentinel adoption', () => {
+test.describe('POST /v1/auth — unclaimed sentinel adoption', () => {
   test.beforeAll(async () => {
     await withDb(async (c) => {
       await c.query(
-        "DELETE FROM authentication_keys WHERE key LIKE 'e2e_v2sent_%' OR device_id LIKE 'e2e_v2sent_%'",
+        "DELETE FROM authentication_keys WHERE key LIKE 'e2e_v1sent_%' OR device_id LIKE 'e2e_v1sent_%'",
       );
       await insertKey(c, {
         key: KEY,
@@ -30,14 +32,14 @@ test.describe('POST /v2/auth — unclaimed sentinel adoption', () => {
   test.afterAll(async () => {
     await withDb((c) =>
       c.query(
-        "DELETE FROM authentication_keys WHERE key LIKE 'e2e_v2sent_%' OR device_id LIKE 'e2e_v2sent_%' OR (key = $1 AND device_id = '-')",
+        "DELETE FROM authentication_keys WHERE key LIKE 'e2e_v1sent_%' OR device_id LIKE 'e2e_v1sent_%' OR (key = $1 AND device_id = '-')",
         [KEY],
       ),
     );
   });
 
-  test('first /v2/auth call with a real device rebinds the sentinel row', async ({ request }) => {
-    const res = await request.post('/v2/auth', {
+  test('first /v1/auth call with a real device rebinds the sentinel row', async ({ request }) => {
+    const res = await request.post('/v1/auth', {
       data: { auth_key: KEY, auth_device: REAL_DEVICE, rate_limit_usage: 0.25 },
     });
     expect(res.status()).toBe(200);
@@ -45,8 +47,8 @@ test.describe('POST /v2/auth — unclaimed sentinel adoption', () => {
     expect(body.status).toBe('success');
     expect(body.data.key).toBe(KEY);
     expect(body.data.device).toBe(REAL_DEVICE);
-    // Float-native envelope: exact post-decrement, no ceil shim.
-    expect(Math.abs(body.data.rate_limit_remaining - 99.75)).toBeLessThan(1e-9);
+    // Frozen envelope: integer remaining via ceil shim. ceil(99.75) = 100.
+    expect(body.data.rate_limit_remaining).toBe(100);
 
     const count = await withDb((c) => countKeysByKey(c, KEY));
     expect(count).toBe(1);
@@ -59,11 +61,12 @@ test.describe('POST /v2/auth — unclaimed sentinel adoption', () => {
       return rows[0];
     });
     expect(row.device_id).toBe(REAL_DEVICE);
+    // The ledger keeps the exact fractional remainder the envelope ceils away.
     expect(Math.abs(row.rate_limit_remaining - 99.75)).toBeLessThan(1e-9);
   });
 
   test('different device after adoption is rejected with 401 unknown', async ({ request }) => {
-    const res = await request.post('/v2/auth', {
+    const res = await request.post('/v1/auth', {
       data: { auth_key: KEY, auth_device: OTHER_DEVICE, rate_limit_usage: 1.0 },
     });
     expect(res.status()).toBe(401);

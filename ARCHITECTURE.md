@@ -10,8 +10,7 @@ Koentji is one Rust binary serving two surfaces from one Actix-Web process:
 
 | Surface                  | Consumer          | Shape                                                              |
 |--------------------------|-------------------|--------------------------------------------------------------------|
-| `POST /v1/auth`          | external apps     | Stable JSON envelope (200/401/429) — **byte-identical and frozen** |
-| `POST /v2/auth`          | external apps     | Float-native envelope (`rate_limit_remaining: f64`); emits `AuthEvent` per request |
+| `POST /v1/auth`          | external apps     | Stable JSON envelope (200/401/429) — **byte-identical and frozen**; `rate_limit_usage` accepted as `f64`, `rate_limit_remaining` returned as integer (ceil shim); emits `AuthEvent` per request |
 | Admin dashboard          | one privileged admin | Leptos SSR + WASM hydration; session-cookie auth; includes `/analytics` page |
 
 They share one Postgres schema, one in-process Moka cache, one ClickHouse analytics store, and the same domain model. Nothing on the admin surface is allowed to destabilise the `/v1/auth` envelope.
@@ -117,8 +116,9 @@ Every one of these was a real finding in the pre-refactor audit (see `.claude-re
 ┌──────────────────────────────────────────────────────────────┐
 │ interface/http/auth_endpoint.rs    (thin Actix adapter)      │
 │  • Parse AuthKey, DeviceId                                   │
-│  • Default rate_limit_usage = 1                              │
+│  • Coerce rate_limit_usage (f64; NaN/∞/≤0 → 1.0)            │
 │  • Invoke AuthenticateApiKey                                 │
+│  • Emit AuthEvent to AuthEventSink (every path)             │
 └──────────────┬───────────────────────────────────────────────┘
                │
                ▼
@@ -144,7 +144,9 @@ Every one of these was a real finding in the pre-refactor audit (see `.claude-re
                ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ interface/http/i18n.rs                                       │
-│  DenialEnvelope::from_reason(reason)                         │
+│  On Allowed: success envelope, rate_limit_remaining as       │
+│   integer (ceil shim from the stored f64)                    │
+│  On Denied: DenialEnvelope::from_reason(reason)              │
 │   → byte-identical { error: { en, id }, message }            │
 │  status_code(reason) → 401 | 429                             │
 └──────────────────────────────────────────────────────────────┘
@@ -152,18 +154,9 @@ Every one of these was a real finding in the pre-refactor audit (see `.claude-re
 
 `IssuedKey::authorize` is pure — no DB, no clock singleton (the caller passes `now`), no async. That's where the denial-priority rules live: revoked beats expired beats rate-limit, free-trial-expired beats rate-limit, rate-limit beats allowed. It has 36 unit tests covering clock boundaries and ledger arithmetic.
 
----
+**Float usage in, integer remaining out.** `rate_limit_usage` is accepted as `f64`, so callers may consume fractional units — e.g. cost-weighted billing where one call costs 0.5 units. NaN, infinite, or non-positive input collapses to `1.0`. The widening from the original `i32` request field is backward-compatible: JSON `1` deserialises straight into `1.0`. Rate-limit amounts are stored as `DOUBLE PRECISION` in Postgres (migration 006), so the ledger keeps the exact fractional remainder; the response casts it to `i64` via `ceil()` so the integer envelope stays byte-identical for existing consumers.
 
-## 4b · Hot path — `POST /v2/auth`
-
-`/v2/auth` is a thin adapter in `interface/http/auth_v2_endpoint.rs` that mirrors v1 with two differences:
-
-1. **Float envelope.** `rate_limit_remaining` is `f64` — no ceil shim. Input `rate_limit_usage` is also `f64`; NaN, infinite, or non-positive collapses to `1.0`.
-2. **Analytics emit.** After responding, emits an `AuthEvent` to `Arc<dyn AuthEventSink>` (fire-and-forget). The emit happens after the response is built — it never blocks the caller. If the sink buffer is full the event is silently dropped.
-
-The same `AuthenticateApiKey` use case, the same `consume_quota` SQL, and the same cache are used. v1 is untouched; the two endpoints duplicate their response DTOs so they can evolve independently.
-
-**Why f64?** Rate-limit amounts are stored as `DOUBLE PRECISION` in Postgres (migration 006). This enables fractional usage — e.g. cost-weighted billing where one call costs 0.5 units. v1 casts the stored `f64` to `i64` via `ceil()` so its integer envelope stays byte-identical for existing consumers.
+**Analytics emit.** On every path (allow / deny / backend error), the adapter emits an `AuthEvent` to `Arc<dyn AuthEventSink>` (fire-and-forget). The emit never blocks the caller; if the sink buffer is full the event is silently dropped. The event carries the true `f64` usage and remaining, even though the wire envelope ceils the remaining away. (This emit previously lived on a separate `/v2/auth` endpoint, since merged into `/v1/auth`.)
 
 ---
 
@@ -435,7 +428,7 @@ Three layers, each with a job the others can't do.
 |------|----------------------------------------------------------------------------------------|---------------------------------------------------------------------|
 | 7.3  | `/metrics` Prometheus endpoint                                                          | No consuming stack yet. Add when a second caller appears.           |
 | N1   | Multi-user admin RBAC                                                                   | Single-admin is hardened; multi-user needs a table + role model.    |
-| N2   | Breaking changes to the `/v1/auth` envelope (typed `reason_code`, etc.)                | `/v2/auth` now exists; any v1 envelope change still prohibited.     |
+| N2   | Breaking changes to the `/v1/auth` envelope (typed `reason_code`, etc.)                | Prohibited on the frozen envelope; needs a new versioned endpoint.  |
 | N3   | Migration off Leptos SSR/WASM                                                           | —                                                                   |
 | N4   | Distributed auth cache / distributed login-attempt ledger / shared audit pipeline       | Needed for multi-replica; not in scope for single-replica.          |
 | N5   | FE⇄BE contract-test server                                                              | Unnecessary for a single-repo single-author surface.                |
@@ -447,8 +440,7 @@ Three layers, each with a job the others can't do.
 ## 13 · How this doc is meant to be used
 
 - **Reading code for the first time?** Start here, then jump to the file you were aiming for.
-- **About to change the `/v1/auth` envelope?** Stop. Read §4–§5. `/v2/auth` already exists — evaluate whether your change belongs there instead.
-- **About to change the `/v2/auth` envelope?** Treat it as stable. Read §4b first.
+- **About to change the `/v1/auth` envelope?** Stop. Read §4–§5. The wire shape is frozen — a breaking change needs a new versioned endpoint, not a reshape in place. (Widening the request `rate_limit_usage` to `f64` was safe; the integer `rate_limit_remaining` response is not negotiable.)
 - **Adding a new admin verb?** Follow §6 — port method in `domain/`, impl in `infrastructure/postgres/`, use case in `application/`, thin Leptos server fn in `src/server/`.
 - **Adding a new UI primitive or token?** §9. Don't sprinkle raw Tailwind colours in feature code.
 - **Debugging a rate-limit race or quota leak?** §5.
