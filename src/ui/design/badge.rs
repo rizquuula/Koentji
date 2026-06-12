@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BadgeTone {
     #[default]
     Neutral,

@@ -1,6 +1,8 @@
+use crate::server::insights_service::get_dashboard_insights;
 use crate::server::stats_service::get_dashboard_stats;
 use crate::ui::dashboard::charts::Charts;
 use crate::ui::dashboard::date_range_picker::DateRangePicker;
+use crate::ui::dashboard::expiring_keys::ExpiringKeys;
 use crate::ui::dashboard::stats_cards::StatsCards;
 use crate::ui::shell::layout::Layout;
 use leptos::prelude::*;
@@ -18,6 +20,11 @@ pub fn DashboardPage() -> impl IntoView {
 
     let stats_signal = Signal::derive(move || stats_resource.get().and_then(|r| r.ok()));
 
+    // Current-state insights ignore the date-range picker, so this resource
+    // takes no reactive deps — it loads once and shows the live picture.
+    let insights_resource = Resource::new(|| (), move |_| get_dashboard_insights());
+    let insights_signal = Signal::derive(move || insights_resource.get().and_then(|r| r.ok()));
+
     view! {
         <Layout active_tab="dashboard">
             <div class="space-y-6">
@@ -33,6 +40,14 @@ pub fn DashboardPage() -> impl IntoView {
                 }>
                     <StatsCards stats=stats_signal/>
                     <Charts stats=stats_signal/>
+                </Suspense>
+
+                <Suspense fallback=|| view! {
+                    <div class="flex justify-center py-12">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    </div>
+                }>
+                    <ExpiringKeys insights=insights_signal/>
                 </Suspense>
             </div>
         </Layout>

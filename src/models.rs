@@ -172,3 +172,24 @@ pub struct DashboardStats {
     pub rate_limit_buckets: Vec<(String, i64)>,
     pub daily_trend: Vec<(String, i64)>,
 }
+
+/// One active key that lapses within the early-warning window, carrying the
+/// owner identifiers the dashboard renders plus a precomputed `days_left` so
+/// the view stays presentation-only.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpiringKey {
+    pub key: String,
+    pub username: Option<String>,
+    pub email: Option<String>,
+    pub device_id: String,
+    pub expired_at: DateTime<Utc>,
+    pub days_left: i64,
+}
+
+/// Current-state dashboard insights, independent of the date-range picker.
+/// Holds only the "Expiring Soon" list today; later steps fold in more
+/// at-a-glance signals, so callers should treat extra fields as expected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardInsights {
+    pub expiring_keys: Vec<ExpiringKey>,
+}

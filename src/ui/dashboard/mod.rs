@@ -2,6 +2,7 @@
 
 pub mod charts;
 pub mod date_range_picker;
+pub mod expiring_keys;
 pub mod page;
 pub mod stats_cards;
 
