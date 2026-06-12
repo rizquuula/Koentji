@@ -18,6 +18,15 @@ pub fn KeyTable(
             .max(1)
     };
 
+    // Split the resource into a stable row list + an explicit "loaded but
+    // empty" flag so the body is a `<For>` plus a `<Show>` rather than an
+    // `Option<AnyView>` that swaps a single <tr> for a row fragment. That
+    // type-erased branch-swap *inside* <tbody> was the hydration-marker
+    // desync behind the `/keys` "unreachable" panic; `<For>`/`<Show>` (with
+    // mark_branches enabled) emit stable branch markers that hydrate cleanly.
+    let rows = Signal::derive(move || data.get().map(|d| d.keys).unwrap_or_default());
+    let is_empty = Signal::derive(move || data.get().is_some_and(|d| d.keys.is_empty()));
+
     view! {
         <div class="bg-white rounded-lg shadow overflow-hidden">
             <div class="overflow-x-auto">
@@ -35,30 +44,21 @@ pub fn KeyTable(
                         </tr>
                     </thead>
                     <tbody>
-                        {move || {
-                            data.get().map(|d| {
-                                if d.keys.is_empty() {
-                                    view! {
-                                        <tr>
-                                            <td colspan="8" class="px-4 py-8 text-center text-gray-500">
-                                                "No API keys found"
-                                            </td>
-                                        </tr>
-                                    }.into_any()
-                                } else {
-                                    d.keys.into_iter().map(|key| {
-                                        view! {
-                                            <KeyRow
-                                                key=key
-                                                on_edit=on_edit
-                                                on_delete=on_delete
-                                                on_reset=on_reset
-                                            />
-                                        }
-                                    }).collect_view().into_any()
-                                }
-                            })
-                        }}
+                        <For each=move || rows.get() key=|k| k.id let:key>
+                            <KeyRow
+                                key=key
+                                on_edit=on_edit
+                                on_delete=on_delete
+                                on_reset=on_reset
+                            />
+                        </For>
+                        <Show when=move || is_empty.get()>
+                            <tr>
+                                <td colspan="8" class="px-4 py-8 text-center text-gray-500">
+                                    "No API keys found"
+                                </td>
+                            </tr>
+                        </Show>
                     </tbody>
                 </table>
             </div>

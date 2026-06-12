@@ -21,6 +21,15 @@ leptos = { version = "0.8" }
 leptos_meta = { version = "0.8" }
 leptos_router = { version = "0.8" }
 leptos_actix = { version = "0.8", optional = true }
+# Direct tachys dep solely to switch on `mark_branches`. leptos pulls tachys
+# in transitively but only enables this feature via `islands-router`, which we
+# don't want. Declaring tachys here with the feature lets Cargo's feature
+# unification turn it on for the *same* tachys leptos compiles — in both the
+# wasm (hydrate) and native (ssr) graphs — so branches get `<!--bo/bc-->`
+# markers the hydration cursor can skip. Without it, conditional branches
+# (`Show`/`if`/match) hydrate by raw structure and desync into a tachys
+# `failed_to_cast_marker_node` panic (the `/keys` "unreachable" hydration bug).
+tachys = { version = "0.2", features = ["mark_branches"] }
 actix-web = { version = "4", optional = true }
 actix-files = { version = "0.6", optional = true }
 actix-session = { version = "0.10", features = ["cookie-session"], optional = true }
