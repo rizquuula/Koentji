@@ -9,6 +9,7 @@
 
 let trafficChart = null;
 let latencyChart = null;
+let denialsChart = null;
 
 function renderAnalyticsCharts(dataJson) {
     setTimeout(function() {
@@ -118,6 +119,55 @@ function renderAnalyticsChartsImpl(data) {
                 },
                 scales: {
                     y: { beginAtZero: true, title: { display: true, text: 'ms' } }
+                }
+            }
+        });
+    }
+
+    // Denials by reason: a doughnut. The canvas only exists when there are
+    // denials (the Leptos side renders an empty-state text instead), so the
+    // `getElementById` guard doubles as the empty-window short-circuit.
+    const denialsCtx = document.getElementById('denials-chart');
+    if (denialsCtx) {
+        if (denialsChart) denialsChart.destroy();
+        denialsChart = new Chart(denialsCtx, {
+            type: 'doughnut',
+            data: {
+                labels: data.denialLabels,
+                datasets: [
+                    {
+                        data: data.denialCounts,
+                        backgroundColor: data.denialColors,
+                        borderWidth: 1,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            boxWidth: 12,
+                            padding: 10,
+                            // Append each slice's count to its legend label so
+                            // the breakdown reads without hovering.
+                            generateLabels: function(chart) {
+                                const d = chart.data;
+                                return d.labels.map(function(label, i) {
+                                    const value = d.datasets[0].data[i];
+                                    const color = d.datasets[0].backgroundColor[i];
+                                    return {
+                                        text: label + ' (' + value + ')',
+                                        fillStyle: color,
+                                        strokeStyle: color,
+                                        index: i,
+                                    };
+                                });
+                            }
+                        }
+                    }
                 }
             }
         });

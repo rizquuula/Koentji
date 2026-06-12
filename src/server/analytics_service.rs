@@ -49,6 +49,15 @@ pub struct LatencyBucket {
     pub p99_ms: Option<f64>,
 }
 
+/// One slice of the denial breakdown: a `denial_reason` and how many denials
+/// carried it in the window. Allowed events carry an empty `denial_reason`,
+/// so this only ever holds the genuine denial reasons.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DenialReasonCount {
+    pub reason: String,
+    pub count: u64,
+}
+
 /// Microseconds → milliseconds for display. Pure (TDD'd) so the conversion
 /// lives in one tested place rather than scattered across the wire layer.
 pub fn micros_to_millis(micros: f64) -> f64 {
@@ -61,6 +70,7 @@ pub fn micros_to_millis(micros: f64) -> f64 {
 pub struct AnalyticsSnapshot {
     pub traffic: Vec<TrafficBucket>,
     pub latency: Vec<LatencyBucket>,
+    pub denial_reasons: Vec<DenialReasonCount>,
 }
 
 /// Fill `bucket_seconds`-aligned gaps so sparse traffic doesn't render a
@@ -171,6 +181,13 @@ struct LatencyRow {
     p99_us: f64,
 }
 
+#[cfg(feature = "ssr")]
+#[derive(clickhouse::Row, serde::Deserialize)]
+struct DenialReasonRow {
+    denial_reason: String,
+    count: u64,
+}
+
 #[server(GetAnalyticsSnapshot, "/api")]
 pub async fn get_analytics_snapshot(
     range: AnalyticsRange,
@@ -222,8 +239,20 @@ pub async fn get_analytics_snapshot(
         .bind(range_secs)
         .fetch_all::<LatencyRow>();
 
-    let (traffic_rows, latency_rows) = tokio::try_join!(traffic_fut, latency_fut)
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let denial_fut = client
+        .query(
+            "SELECT denial_reason, count() AS count
+             FROM auth_events
+             WHERE decision = 'denied' AND ts >= now() - INTERVAL ? second
+             GROUP BY denial_reason
+             ORDER BY count DESC",
+        )
+        .bind(range_secs)
+        .fetch_all::<DenialReasonRow>();
+
+    let (traffic_rows, latency_rows, denial_rows) =
+        tokio::try_join!(traffic_fut, latency_fut, denial_fut)
+            .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     let queried_traffic: Vec<TrafficBucket> = traffic_rows
         .into_iter()
@@ -244,11 +273,23 @@ pub async fn get_analytics_snapshot(
         })
         .collect();
 
+    let denial_reasons: Vec<DenialReasonCount> = denial_rows
+        .into_iter()
+        .map(|r| DenialReasonCount {
+            reason: r.denial_reason,
+            count: r.count,
+        })
+        .collect();
+
     let now_unix_ms = chrono::Utc::now().timestamp_millis();
     let traffic = fill_missing_buckets(&queried_traffic, now_unix_ms, range);
     let latency = fill_missing_latency_buckets(&queried_latency, now_unix_ms, range);
 
-    Ok(AnalyticsSnapshot { traffic, latency })
+    Ok(AnalyticsSnapshot {
+        traffic,
+        latency,
+        denial_reasons,
+    })
 }
 
 #[cfg(test)]

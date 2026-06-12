@@ -32,6 +32,21 @@ pub fn render_analytics_charts(snapshot: &AnalyticsSnapshot, range_is_24h: bool)
     let latency_p95: Vec<Option<f64>> = snapshot.latency.iter().map(|b| b.p95_ms).collect();
     let latency_p99: Vec<Option<f64>> = snapshot.latency.iter().map(|b| b.p99_ms).collect();
 
+    // Denial doughnut: parallel label/count/color arrays. Colors are keyed
+    // by reason in Rust (one source of truth) so the JS slice order can't
+    // drift from the palette. Unknown reasons fall back to a neutral gray.
+    let denial_labels: Vec<&str> = snapshot
+        .denial_reasons
+        .iter()
+        .map(|d| d.reason.as_str())
+        .collect();
+    let denial_counts: Vec<u64> = snapshot.denial_reasons.iter().map(|d| d.count).collect();
+    let denial_colors: Vec<&str> = snapshot
+        .denial_reasons
+        .iter()
+        .map(|d| denial_reason_color(&d.reason))
+        .collect();
+
     let data = serde_json::json!({
         "trafficLabels": labels,
         "trafficAllowed": allowed,
@@ -39,10 +54,27 @@ pub fn render_analytics_charts(snapshot: &AnalyticsSnapshot, range_is_24h: bool)
         "latencyP50": latency_p50,
         "latencyP95": latency_p95,
         "latencyP99": latency_p99,
+        "denialLabels": denial_labels,
+        "denialCounts": denial_counts,
+        "denialColors": denial_colors,
     });
 
     if let Ok(json_str) = serde_json::to_string(&data) {
         render_analytics_charts_js(&json_str);
+    }
+}
+
+/// Stable color per `denial_reason` so the doughnut slice for a given reason
+/// is the same hue across windows. Unknown reasons get a neutral gray.
+fn denial_reason_color(reason: &str) -> &'static str {
+    match reason {
+        "RateLimitExceeded" => "#F59E0B",
+        "Expired" => "#8B5CF6",
+        "FreeTrialEnded" => "#EC4899",
+        "Revoked" => "#DC2626",
+        "UnknownKey" => "#6B7280",
+        "BackendError" => "#0EA5E9",
+        _ => "#9CA3AF",
     }
 }
 
@@ -76,6 +108,30 @@ pub fn LatencyPanel() -> impl IntoView {
             <div class="relative" style="height: 300px">
                 <canvas id="latency-chart"></canvas>
             </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn DenialReasonsPanel(has_denials: bool) -> impl IntoView {
+    // Empty state lives in Leptos, not JS: a doughnut with zero slices renders
+    // as a blank ring, so when there are no denials we show plain text instead.
+    view! {
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="text-sm font-medium text-gray-500 mb-4">"Denials by reason"</h3>
+            {if has_denials {
+                view! {
+                    <div class="relative" style="height: 300px">
+                        <canvas id="denials-chart"></canvas>
+                    </div>
+                }.into_any()
+            } else {
+                view! {
+                    <div class="flex items-center justify-center text-sm text-gray-500" style="height: 300px">
+                        "No denials in this window"
+                    </div>
+                }.into_any()
+            }}
         </div>
     }
 }
