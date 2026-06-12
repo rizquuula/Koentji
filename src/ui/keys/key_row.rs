@@ -161,14 +161,14 @@ pub fn KeyRow(
                 </span>
             </td>
             <td class="px-4 py-3 text-sm">
-                <div class="flex items-center space-x-2">
+                <div class="flex flex-col space-y-1">
                     <div class="w-24 bg-gray-200 rounded-full h-2">
                         <div
                             class=format!("h-2 rounded-full {}", rate_bar_class)
                             style=format!("width: {}%", rate_pct.min(100.0))
                         />
                     </div>
-                    <span class="text-xs text-gray-500">
+                    <span class="text-[10px] text-gray-500">
                         {format!("{}/{}", key.rate_limit_remaining, key.rate_limit_daily)}
                     </span>
                 </div>
