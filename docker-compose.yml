@@ -3,8 +3,13 @@ services:
     container_name: koentji-app
     image: ${APP_IMAGE:-ghcr.io/rizquuula/koentji:latest}
     build: .
-    ports:
-      - "${APP_PORT:-3000}:3000"
+    # The app is reachable only on the internal compose network. The nginx
+    # service below is the public entrypoint — it gzip-compresses the static
+    # WASM/JS/CSS bundle so the multi-MB download doesn't stall on slow links
+    # (which left /analytics blank). To hit the app directly for debugging,
+    # temporarily add a `ports:` mapping back.
+    expose:
+      - "3000"
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgres://koentji:koentji@db:5432/koentjilab}
       - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string-at-least-64-bytes-long}
@@ -23,6 +28,21 @@ services:
     env_file:
       - path: .env
         required: false
+
+  nginx:
+    container_name: koentji-nginx
+    image: nginx:1.27-alpine
+    # Public entrypoint. Maps the same host port the app used to publish, so
+    # existing deployments keep hitting ${APP_PORT} unchanged — only now the
+    # response (notably the WASM bundle) is compressed on the way out.
+    ports:
+      - "${APP_PORT:-3000}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
 
   clickhouse:
     container_name: koentji-clickhouse
