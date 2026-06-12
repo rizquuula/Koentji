@@ -76,15 +76,21 @@ pub fn AnalyticsPage() -> impl IntoView {
                     </div>
                 </div>
 
-                <Suspense fallback=|| view! {
+                // `Transition`, not `Suspense`: the page auto-refetches every
+                // 30s, and `Suspense` re-arms its fallback on every pending
+                // read — flashing the spinner and tearing down the Chart.js
+                // canvases on each tick. `Transition` shows the fallback only
+                // on the first load and keeps the current panels on screen
+                // while a refetch is in flight.
+                <Transition fallback=|| view! {
                     <div class="flex justify-center py-12">
                         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                     </div>
                 }>
-                    // Read the Resource so Suspense knows when the first load
-                    // resolves, but render panels from `last_good` so refetches
-                    // don't blank the page. An initial error surfaces here;
-                    // refetch errors leave the last-good data on screen.
+                    // Read the Resource so the Transition knows when the first
+                    // load resolves, but render panels from `last_good`. An
+                    // initial error surfaces here; refetch errors leave the
+                    // last-good data on screen.
                     {move || snapshot.get().and_then(|r| match r {
                         Ok(_) => last_good.get().map(|(_, snap)| {
                             let allowed: u64 = snap.traffic.iter().map(|b| b.allowed).sum();
@@ -120,7 +126,7 @@ pub fn AnalyticsPage() -> impl IntoView {
                             <p class="text-sm text-red-600">{format!("Failed to load: {e}")}</p>
                         }.into_any()),
                     })}
-                </Suspense>
+                </Transition>
             </div>
         </Layout>
     }
