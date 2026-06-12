@@ -1,6 +1,5 @@
-use crate::server::analytics_service::{
-    get_allow_deny_counts, get_requests_per_second, AnalyticsRange,
-};
+use crate::server::analytics_service::{get_analytics_snapshot, AnalyticsRange};
+use crate::ui::analytics::panels::{render_analytics_charts, TrafficPanel};
 use crate::ui::shell::layout::Layout;
 use leptos::prelude::*;
 
@@ -8,8 +7,17 @@ use leptos::prelude::*;
 pub fn AnalyticsPage() -> impl IntoView {
     let range = RwSignal::new(AnalyticsRange::Last24h);
 
-    let rps_resource = Resource::new(move || range.get(), get_requests_per_second);
-    let ratio_resource = Resource::new(move || range.get(), get_allow_deny_counts);
+    let snapshot = Resource::new(move || range.get(), get_analytics_snapshot);
+
+    // When the snapshot resolves Ok, hand it to the Chart.js bridge. Mirrors
+    // the dashboard's `Effect::new` + `render_charts` pattern; re-runs on
+    // range switches (the bridge destroys the prior canvas before re-create).
+    Effect::new(move || {
+        if let Some(Ok(snap)) = snapshot.get() {
+            let is_24h = range.get_untracked() == AnalyticsRange::Last24h;
+            render_analytics_charts(&snap, is_24h);
+        }
+    });
 
     let button_class = move |r: AnalyticsRange| {
         if range.get() == r {
@@ -40,39 +48,28 @@ pub fn AnalyticsPage() -> impl IntoView {
                         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                     </div>
                 }>
-                    <div class="bg-white rounded-lg shadow p-6">
-                        <h3 class="text-sm font-medium text-gray-500 mb-4">"Requests per Second"</h3>
-                        {move || rps_resource.get().map(|r| match r {
-                            Ok(res) => view! { <div inner_html=res.svg></div> }.into_any(),
-                            Err(e) => view! {
-                                <p class="text-sm text-red-600">{format!("Failed to load: {e}")}</p>
-                            }.into_any(),
-                        })}
-                    </div>
-
-                    <div class="bg-white rounded-lg shadow p-6">
-                        <h3 class="text-sm font-medium text-gray-500 mb-4">"Allow vs Deny"</h3>
-                        {move || ratio_resource.get().map(|r| match r {
-                            Ok(res) => view! {
-                                <div>
-                                    <div inner_html=res.svg.clone()></div>
-                                    <div class="mt-4 flex space-x-6 text-sm">
-                                        <span class="text-gray-700">
-                                            <span class="inline-block w-3 h-3 rounded-sm bg-green-500 mr-2"></span>
-                                            {format!("Allowed: {}", res.counts.allowed)}
-                                        </span>
-                                        <span class="text-gray-700">
-                                            <span class="inline-block w-3 h-3 rounded-sm bg-red-600 mr-2"></span>
-                                            {format!("Denied: {}", res.counts.denied)}
-                                        </span>
-                                    </div>
+                    {move || snapshot.get().map(|r| match r {
+                        Ok(snap) => {
+                            let allowed: u64 = snap.traffic.iter().map(|b| b.allowed).sum();
+                            let denied: u64 = snap.traffic.iter().map(|b| b.denied).sum();
+                            view! {
+                                <TrafficPanel/>
+                                <div class="flex space-x-6 text-sm">
+                                    <span class="text-gray-700">
+                                        <span class="inline-block w-3 h-3 rounded-sm bg-green-500 mr-2"></span>
+                                        {format!("Allowed: {allowed}")}
+                                    </span>
+                                    <span class="text-gray-700">
+                                        <span class="inline-block w-3 h-3 rounded-sm bg-red-600 mr-2"></span>
+                                        {format!("Denied: {denied}")}
+                                    </span>
                                 </div>
-                            }.into_any(),
-                            Err(e) => view! {
-                                <p class="text-sm text-red-600">{format!("Failed to load: {e}")}</p>
-                            }.into_any(),
-                        })}
-                    </div>
+                            }.into_any()
+                        }
+                        Err(e) => view! {
+                            <p class="text-sm text-red-600">{format!("Failed to load: {e}")}</p>
+                        }.into_any(),
+                    })}
                 </Suspense>
             </div>
         </Layout>

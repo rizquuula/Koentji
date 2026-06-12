@@ -28,28 +28,59 @@ impl AnalyticsRange {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TimeBucket {
+/// One time bucket of traffic: allowed + denied counts. The stack top
+/// (allowed + denied) is the total request volume for the bucket.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrafficBucket {
     pub ts_unix_ms: i64,
-    pub count: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AllowDenyCounts {
     pub allowed: u64,
     pub denied: u64,
 }
 
+/// Data-only analytics payload. The UI renders it client-side via Chart.js;
+/// no server-rendered SVG. Grows in later milestones (more panels).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RpsResult {
-    pub points: Vec<TimeBucket>,
-    pub svg: String,
+pub struct AnalyticsSnapshot {
+    pub traffic: Vec<TrafficBucket>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AllowDenyResult {
-    pub counts: AllowDenyCounts,
-    pub svg: String,
+/// Fill `bucket_seconds`-aligned gaps so sparse traffic doesn't render a
+/// misleading chart. `queried` holds only the buckets that had events;
+/// `now_unix_ms` is the window end. Every aligned bucket from window start
+/// (`now - range_seconds`, snapped down to a bucket boundary) through the
+/// `now` bucket is emitted, with missing ones as `{ allowed: 0, denied: 0 }`.
+///
+/// Pure: no ClickHouse, no async — unit-tested under plain `cargo test`.
+pub fn fill_missing_buckets(
+    queried: &[TrafficBucket],
+    now_unix_ms: i64,
+    range: AnalyticsRange,
+) -> Vec<TrafficBucket> {
+    let bucket_ms = range.bucket_seconds() as i64 * 1000;
+    let range_ms = range.range_seconds() as i64 * 1000;
+
+    // Snap both ends down to a bucket boundary, mirroring ClickHouse's
+    // `toStartOfInterval` so queried timestamps land on these slots exactly.
+    let last_bucket = (now_unix_ms / bucket_ms) * bucket_ms;
+    let first_bucket = ((now_unix_ms - range_ms) / bucket_ms) * bucket_ms;
+
+    let mut lookup = std::collections::HashMap::new();
+    for b in queried {
+        lookup.insert(b.ts_unix_ms, (b.allowed, b.denied));
+    }
+
+    let mut out = Vec::new();
+    let mut ts = first_bucket;
+    while ts <= last_bucket {
+        let (allowed, denied) = lookup.get(&ts).copied().unwrap_or((0, 0));
+        out.push(TrafficBucket {
+            ts_unix_ms: ts,
+            allowed,
+            denied,
+        });
+        ts += bucket_ms;
+    }
+    out
 }
 
 #[cfg(feature = "ssr")]
@@ -69,20 +100,16 @@ async fn require_admin() -> Result<(), ServerFnError> {
 
 #[cfg(feature = "ssr")]
 #[derive(clickhouse::Row, serde::Deserialize)]
-struct TimeBucketRow {
+struct TrafficRow {
     ts_unix_ms: i64,
-    count: u64,
-}
-
-#[cfg(feature = "ssr")]
-#[derive(clickhouse::Row, serde::Deserialize)]
-struct AllowDenyRow {
     allowed: u64,
     denied: u64,
 }
 
-#[server(GetRequestsPerSecond, "/api")]
-pub async fn get_requests_per_second(range: AnalyticsRange) -> Result<RpsResult, ServerFnError> {
+#[server(GetAnalyticsSnapshot, "/api")]
+pub async fn get_analytics_snapshot(
+    range: AnalyticsRange,
+) -> Result<AnalyticsSnapshot, ServerFnError> {
     require_admin().await?;
 
     use actix_web::web;
@@ -92,14 +119,15 @@ pub async fn get_requests_per_second(range: AnalyticsRange) -> Result<RpsResult,
     let bucket_secs = range.bucket_seconds();
     let range_secs = range.range_seconds();
 
-    let rows: Vec<TimeBucketRow> = client
+    let rows: Vec<TrafficRow> = client
         .query(
             // `toStartOfInterval(DateTime64, INTERVAL n second)` returns a
             // plain `DateTime` in ClickHouse 24.x, which `toUnixTimestamp64Milli`
             // rejects (it wants a `DateTime64`). Buckets are whole-second
             // aligned anyway, so take epoch seconds and scale to ms.
             "SELECT toInt64(toUnixTimestamp(toStartOfInterval(ts, INTERVAL ? second))) * 1000 AS ts_unix_ms,
-                    count() AS count
+                    countIf(decision = 'allowed') AS allowed,
+                    countIf(decision = 'denied') AS denied
              FROM auth_events
              WHERE ts >= now() - INTERVAL ? second
              GROUP BY ts_unix_ms
@@ -107,53 +135,23 @@ pub async fn get_requests_per_second(range: AnalyticsRange) -> Result<RpsResult,
         )
         .bind(bucket_secs)
         .bind(range_secs)
-        .fetch_all::<TimeBucketRow>()
+        .fetch_all::<TrafficRow>()
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    let points: Vec<TimeBucket> = rows
+    let queried: Vec<TrafficBucket> = rows
         .into_iter()
-        .map(|r| TimeBucket {
+        .map(|r| TrafficBucket {
             ts_unix_ms: r.ts_unix_ms,
-            count: r.count,
+            allowed: r.allowed,
+            denied: r.denied,
         })
         .collect();
 
-    let svg = crate::ui::analytics::charts::render_rps_svg(&points);
-    Ok(RpsResult { points, svg })
-}
+    let now_unix_ms = chrono::Utc::now().timestamp_millis();
+    let traffic = fill_missing_buckets(&queried, now_unix_ms, range);
 
-#[server(GetAllowDenyCounts, "/api")]
-pub async fn get_allow_deny_counts(
-    range: AnalyticsRange,
-) -> Result<AllowDenyResult, ServerFnError> {
-    require_admin().await?;
-
-    use actix_web::web;
-    use leptos_actix::extract;
-
-    let client = extract::<web::Data<clickhouse::Client>>().await?;
-    let range_secs = range.range_seconds();
-
-    let row: AllowDenyRow = client
-        .query(
-            "SELECT
-                countIf(decision = 'allowed') AS allowed,
-                countIf(decision = 'denied') AS denied
-             FROM auth_events
-             WHERE ts >= now() - INTERVAL ? second",
-        )
-        .bind(range_secs)
-        .fetch_one::<AllowDenyRow>()
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-
-    let counts = AllowDenyCounts {
-        allowed: row.allowed,
-        denied: row.denied,
-    };
-    let svg = crate::ui::analytics::charts::render_allow_deny_svg(&counts);
-    Ok(AllowDenyResult { counts, svg })
+    Ok(AnalyticsSnapshot { traffic })
 }
 
 #[cfg(test)]
@@ -172,5 +170,113 @@ mod tests {
         assert_eq!(AnalyticsRange::Last24h.range_seconds(), 86_400);
         assert_eq!(AnalyticsRange::Last7d.range_seconds(), 604_800);
         assert_eq!(AnalyticsRange::Last30d.range_seconds(), 2_592_000);
+    }
+
+    // `Last24h`: 60s buckets => 60_000 ms. Pin `now` to a bucket boundary
+    // (28_333_334 * 60_000) so the expected slots are easy to reason about.
+    const BUCKET_MS_24H: i64 = 60_000;
+    const ALIGNED_NOW: i64 = 1_700_000_040_000;
+
+    #[test]
+    fn fill_empty_input_yields_dense_zeroed_window() {
+        let now = ALIGNED_NOW;
+        let out = fill_missing_buckets(&[], now, AnalyticsRange::Last24h);
+
+        // 24h / 60s = 1440 buckets, plus the inclusive end bucket = 1441.
+        assert_eq!(out.len(), 1441);
+        assert!(out.iter().all(|b| b.allowed == 0 && b.denied == 0));
+        // Boundary-aligned and strictly increasing by one bucket.
+        assert_eq!(out.first().unwrap().ts_unix_ms % BUCKET_MS_24H, 0);
+        assert_eq!(out.last().unwrap().ts_unix_ms, now);
+        for w in out.windows(2) {
+            assert_eq!(w[1].ts_unix_ms - w[0].ts_unix_ms, BUCKET_MS_24H);
+        }
+    }
+
+    #[test]
+    fn fill_gap_in_the_middle_inserts_zeros() {
+        let now = ALIGNED_NOW;
+        // Two real buckets two slots apart, leaving one empty slot between.
+        let a = now - 3 * BUCKET_MS_24H;
+        let b = now - BUCKET_MS_24H;
+        let queried = vec![
+            TrafficBucket {
+                ts_unix_ms: a,
+                allowed: 10,
+                denied: 2,
+            },
+            TrafficBucket {
+                ts_unix_ms: b,
+                allowed: 5,
+                denied: 1,
+            },
+        ];
+        let out = fill_missing_buckets(&queried, now, AnalyticsRange::Last24h);
+
+        let mid = out
+            .iter()
+            .find(|x| x.ts_unix_ms == now - 2 * BUCKET_MS_24H)
+            .expect("missing middle bucket should be synthesized");
+        assert_eq!((mid.allowed, mid.denied), (0, 0));
+
+        let first_real = out.iter().find(|x| x.ts_unix_ms == a).unwrap();
+        assert_eq!((first_real.allowed, first_real.denied), (10, 2));
+        let second_real = out.iter().find(|x| x.ts_unix_ms == b).unwrap();
+        assert_eq!((second_real.allowed, second_real.denied), (5, 1));
+    }
+
+    #[test]
+    fn fill_leading_gap_zero_pads_the_window_start() {
+        let now = ALIGNED_NOW;
+        // Only the final bucket has data; everything before must be zeros.
+        let queried = vec![TrafficBucket {
+            ts_unix_ms: now,
+            allowed: 7,
+            denied: 3,
+        }];
+        let out = fill_missing_buckets(&queried, now, AnalyticsRange::Last24h);
+
+        assert_eq!(
+            (out.first().unwrap().allowed, out.first().unwrap().denied),
+            (0, 0)
+        );
+        assert_eq!(
+            (out.last().unwrap().allowed, out.last().unwrap().denied),
+            (7, 3)
+        );
+    }
+
+    #[test]
+    fn fill_trailing_gap_zero_pads_the_window_end() {
+        let now = ALIGNED_NOW;
+        // Only the first bucket has data; everything after must be zeros.
+        let first = ((now - 86_400_000) / BUCKET_MS_24H) * BUCKET_MS_24H;
+        let queried = vec![TrafficBucket {
+            ts_unix_ms: first,
+            allowed: 9,
+            denied: 0,
+        }];
+        let out = fill_missing_buckets(&queried, now, AnalyticsRange::Last24h);
+
+        assert_eq!(
+            (out.first().unwrap().allowed, out.first().unwrap().denied),
+            (9, 0)
+        );
+        assert_eq!(
+            (out.last().unwrap().allowed, out.last().unwrap().denied),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn fill_snaps_unaligned_now_to_bucket_boundaries() {
+        // `now` sits mid-bucket; output endpoints must still be aligned.
+        let now = 1_700_000_000_000 + 37_123;
+        let out = fill_missing_buckets(&[], now, AnalyticsRange::Last24h);
+
+        assert_eq!(out.first().unwrap().ts_unix_ms % BUCKET_MS_24H, 0);
+        assert_eq!(out.last().unwrap().ts_unix_ms % BUCKET_MS_24H, 0);
+        assert!(out.last().unwrap().ts_unix_ms <= now);
+        assert!(out.last().unwrap().ts_unix_ms > now - BUCKET_MS_24H);
     }
 }

@@ -26,6 +26,7 @@ pub fn App() -> impl IntoView {
         <Title text="Koentji"/>
         <Script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"/>
         <Script src="/assets/js/charts.js"/>
+        <Script src="/assets/js/analytics_charts.js"/>
 
         <Router>
             <Routes fallback=|| view! { <NotFound/> }>
