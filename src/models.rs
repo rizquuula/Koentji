@@ -84,6 +84,20 @@ impl AuthenticationKey {
         let suffix = &self.key[self.key.len() - 4..];
         format!("{}****...****{}", prefix, suffix)
     }
+
+    /// Visual mask for the device id, mirroring `masked_key`. Unlike the API
+    /// key this is purely cosmetic (the device id is not a secret and is
+    /// already shipped to the client) — char-based slicing keeps it safe for
+    /// non-ASCII ids. Short ids and the `-` unclaimed sentinel pass through.
+    pub fn masked_device_id(&self) -> String {
+        let chars: Vec<char> = self.device_id.chars().collect();
+        if chars.len() <= 8 {
+            return self.device_id.clone();
+        }
+        let prefix: String = chars[..4].iter().collect();
+        let suffix: String = chars[chars.len() - 4..].iter().collect();
+        format!("{}****...****{}", prefix, suffix)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

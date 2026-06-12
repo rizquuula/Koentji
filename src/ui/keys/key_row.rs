@@ -15,6 +15,12 @@ pub fn KeyRow(
     let key_clone = key.clone();
     let revealed_key = RwSignal::new(None::<String>);
 
+    // The device id is non-secret and already on the client, so reveal is a
+    // local visual toggle (no server fetch like the API key needs).
+    let device_id = key.device_id.clone();
+    let masked_device = key.masked_device_id();
+    let device_revealed = RwSignal::new(false);
+
     let status_badge_class = match status.as_str() {
         "active" => "bg-green-100 text-green-800",
         "expired" => "bg-yellow-100 text-yellow-800",
@@ -46,6 +52,13 @@ pub fn KeyRow(
             copy_to_clipboard(&k);
         }
     };
+
+    let toggle_device = move |_| device_revealed.update(|shown| *shown = !*shown);
+    let copy_device = {
+        let device_id = device_id.clone();
+        move |_| copy_to_clipboard(&device_id)
+    };
+    let device_full = device_id.clone();
 
     let edit_key = key_clone.clone();
 
@@ -87,7 +100,47 @@ pub fn KeyRow(
                     </button>
                 </div>
             </td>
-            <td class="px-4 py-3 text-sm">{key.device_id.clone()}</td>
+            <td class="px-4 py-3 text-sm">
+                <div class="flex items-center space-x-2">
+                    <span class="font-mono text-gray-600" aria-hidden="true">
+                        {move || {
+                            if device_revealed.get() {
+                                device_full.clone()
+                            } else {
+                                masked_device.clone()
+                            }
+                        }}
+                    </span>
+                    // Full id kept for assistive tech (the device id is not a
+                    // secret), so screen readers and role/text locators still
+                    // resolve the row by its real device id while the eye only
+                    // toggles the on-screen masking.
+                    <span class="sr-only">{device_id.clone()}</span>
+                    <button
+                        type="button"
+                        class="text-blue-500 hover:text-blue-700 text-xs"
+                        on:click=toggle_device
+                        title="Reveal"
+                        aria-label="Reveal full device ID"
+                    >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                        </svg>
+                    </button>
+                    <button
+                        type="button"
+                        class="text-gray-400 hover:text-gray-600 text-xs"
+                        on:click=copy_device
+                        title="Copy"
+                        aria-label="Copy device ID to clipboard"
+                    >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                        </svg>
+                    </button>
+                </div>
+            </td>
             <td class="px-4 py-3 text-sm">
                 <div>
                     <span class="text-gray-900">{key.username.clone().unwrap_or_else(|| "-".to_string())}</span>

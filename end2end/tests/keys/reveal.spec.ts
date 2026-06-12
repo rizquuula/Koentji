@@ -20,7 +20,7 @@ test.describe('reveal key', () => {
     await page.goto('/keys');
     const row = page.getByRole('row').filter({ hasText: DEVICE });
     await expect(row).toContainText(/klab_\*+/);
-    await row.getByRole('button', { name: /Reveal/i }).click();
+    await row.getByRole('button', { name: 'Reveal full key' }).click();
     await expect(row).toContainText(KEY);
   });
 });
