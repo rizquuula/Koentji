@@ -2,7 +2,7 @@ use crate::server::analytics_service::{get_analytics_snapshot, AnalyticsRange};
 use crate::ui::analytics::panels::{
     render_analytics_charts, DenialReasonsPanel, LatencyPanel, TrafficPanel,
 };
-use crate::ui::analytics::tables::BusiestKeysTable;
+use crate::ui::analytics::tables::{BusiestKeysTable, QuotaPressureTable};
 use crate::ui::shell::layout::Layout;
 use leptos::prelude::*;
 
@@ -57,6 +57,7 @@ pub fn AnalyticsPage() -> impl IntoView {
                             let denied: u64 = snap.traffic.iter().map(|b| b.denied).sum();
                             let has_denials = !snap.denial_reasons.is_empty();
                             let busiest_keys = snap.busiest_keys.clone();
+                            let quota_pressure = snap.quota_pressure.clone();
                             view! {
                                 <TrafficPanel/>
                                 <div class="flex space-x-6 text-sm">
@@ -75,6 +76,7 @@ pub fn AnalyticsPage() -> impl IntoView {
                                 </div>
                                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                     <BusiestKeysTable rows=busiest_keys/>
+                                    <QuotaPressureTable rows=quota_pressure/>
                                 </div>
                             }.into_any()
                         }

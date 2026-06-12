@@ -68,6 +68,17 @@ pub struct KeyTrafficRow {
     pub last_seen_unix: i64,
 }
 
+/// One row of the quota-pressure table: a key's latest authoritative
+/// `remaining` (from ClickHouse) paired with its full per-window `limit`
+/// (from Postgres). `limit` is `None` when the key no longer exists in
+/// Postgres (deleted but still has events in the ClickHouse window).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QuotaPressureRow {
+    pub auth_key: String,
+    pub remaining: f64,
+    pub limit: Option<f64>,
+}
+
 /// Microseconds → milliseconds for display. Pure (TDD'd) so the conversion
 /// lives in one tested place rather than scattered across the wire layer.
 pub fn micros_to_millis(micros: f64) -> f64 {
@@ -82,6 +93,7 @@ pub struct AnalyticsSnapshot {
     pub latency: Vec<LatencyBucket>,
     pub denial_reasons: Vec<DenialReasonCount>,
     pub busiest_keys: Vec<KeyTrafficRow>,
+    pub quota_pressure: Vec<QuotaPressureRow>,
 }
 
 /// Fill `bucket_seconds`-aligned gaps so sparse traffic doesn't render a
@@ -208,6 +220,14 @@ struct BusiestKeyRow {
     last_seen_unix: i64,
 }
 
+#[cfg(feature = "ssr")]
+#[derive(clickhouse::Row, serde::Deserialize)]
+struct QuotaRow {
+    auth_key_id: i64,
+    auth_key: String,
+    remaining: f64,
+}
+
 #[server(GetAnalyticsSnapshot, "/api")]
 pub async fn get_analytics_snapshot(
     range: AnalyticsRange,
@@ -285,8 +305,28 @@ pub async fn get_analytics_snapshot(
         .bind(range_secs)
         .fetch_all::<BusiestKeyRow>();
 
-    let (traffic_rows, latency_rows, denial_rows, busiest_rows) =
-        tokio::try_join!(traffic_fut, latency_fut, denial_fut, busiest_fut)
+    // Latest authoritative `remaining` per key. Denied events hardcode
+    // `remaining_after = 0` and `UnknownKey`/free-trial-miss denials carry
+    // `auth_key_id = 0`, so both filters are mandatory or the figures lie.
+    // `argMax(remaining_after, ts)` takes the most recent allowed event's
+    // remaining; lowest-remaining keys first surface the ones nearing zero.
+    let quota_fut = client
+        .query(
+            "SELECT auth_key_id,
+                    any(auth_key) AS auth_key,
+                    argMax(remaining_after, ts) AS remaining
+             FROM auth_events
+             WHERE decision = 'allowed' AND auth_key_id != 0
+                   AND ts >= now() - INTERVAL ? second
+             GROUP BY auth_key_id
+             ORDER BY remaining ASC
+             LIMIT 10",
+        )
+        .bind(range_secs)
+        .fetch_all::<QuotaRow>();
+
+    let (traffic_rows, latency_rows, denial_rows, busiest_rows, quota_rows) =
+        tokio::try_join!(traffic_fut, latency_fut, denial_fut, busiest_fut, quota_fut)
             .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     let queried_traffic: Vec<TrafficBucket> = traffic_rows
@@ -326,6 +366,37 @@ pub async fn get_analytics_snapshot(
         })
         .collect();
 
+    // Resolve each pressured key's full per-window limit from Postgres in a
+    // single `id = ANY($1)` query (never N round-trips). `rate_limit_daily`
+    // is the per-window amount; `rate_limit_remaining` is the live ledger we
+    // deliberately ignore here — ClickHouse's `argMax(remaining_after)` is the
+    // window's authoritative remaining. Keys deleted from Postgres but still
+    // present in the ClickHouse window simply miss the lookup → `limit = None`.
+    let key_ids: Vec<i64> = quota_rows.iter().map(|r| r.auth_key_id).collect();
+    let mut limit_by_id: std::collections::HashMap<i64, f64> = std::collections::HashMap::new();
+    if !key_ids.is_empty() {
+        let pool = extract::<web::Data<sqlx::PgPool>>().await?;
+        let limit_rows: Vec<(i32, f64)> = sqlx::query_as(
+            "SELECT id, rate_limit_daily FROM authentication_keys WHERE id = ANY($1)",
+        )
+        .bind(key_ids.iter().map(|id| *id as i32).collect::<Vec<i32>>())
+        .fetch_all(pool.get_ref())
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        for (id, limit) in limit_rows {
+            limit_by_id.insert(id as i64, limit);
+        }
+    }
+
+    let quota_pressure: Vec<QuotaPressureRow> = quota_rows
+        .into_iter()
+        .map(|r| QuotaPressureRow {
+            auth_key: r.auth_key,
+            remaining: r.remaining,
+            limit: limit_by_id.get(&r.auth_key_id).copied(),
+        })
+        .collect();
+
     let now_unix_ms = chrono::Utc::now().timestamp_millis();
     let traffic = fill_missing_buckets(&queried_traffic, now_unix_ms, range);
     let latency = fill_missing_latency_buckets(&queried_latency, now_unix_ms, range);
@@ -335,6 +406,7 @@ pub async fn get_analytics_snapshot(
         latency,
         denial_reasons,
         busiest_keys,
+        quota_pressure,
     })
 }
 
