@@ -13,7 +13,8 @@ mod common;
 
 use chrono::{Duration, TimeZone, Utc};
 use common::fresh_pool;
-use koentji::server::insights_service::expiring_keys;
+use koentji::server::insights_service::{expiring_keys, recent_admin_activity};
+use serde_json::json;
 
 #[tokio::test]
 async fn expiring_keys_returns_only_the_next_30_days_soonest_first() {
@@ -92,4 +93,136 @@ async fn expiring_keys_returns_only_the_next_30_days_soonest_first() {
         .execute(&pool)
         .await
         .expect("clean up seeded keys");
+}
+
+/// `recent_admin_activity` is the first read path for `audit_log`. Seed twelve
+/// rows with distinct `occurred_at` values across all real event types, then
+/// assert the helper returns the newest ten, newest first, with a rendered
+/// summary per event type.
+#[tokio::test]
+async fn recent_admin_activity_returns_newest_ten_with_summaries() {
+    let pool = fresh_pool().await;
+
+    let base = Utc.with_ymd_and_hms(2026, 6, 12, 12, 0, 0).unwrap();
+    const TEST_ACTOR: &str = "klab_test_admin";
+
+    // Twelve events, oldest (offset 0) to newest (offset 11). The payload
+    // shapes mirror `audit_event_repository::encode`. Cycling the event types
+    // exercises every summary branch within the most-recent ten.
+    let events: Vec<(&str, i32, serde_json::Value)> = vec![
+        (
+            "KeyIssued",
+            1,
+            json!({ "device": "dev-1", "subscription": "free" }),
+        ),
+        ("KeyRevoked", 2, json!({ "device": "dev-2" })),
+        (
+            "DeviceReassigned",
+            3,
+            json!({ "previous_device": "old-3", "current_device": "new-3" }),
+        ),
+        ("RateLimitReset", 4, json!({ "device": "dev-4" })),
+        (
+            "KeyExpirationExtended",
+            5,
+            json!({ "device": "dev-5", "new_expiry": "2026-07-01" }),
+        ),
+        (
+            "KeyIssued",
+            6,
+            json!({ "device": "dev-6", "subscription": "pro" }),
+        ),
+        ("KeyRevoked", 7, json!({ "device": "dev-7" })),
+        (
+            "DeviceReassigned",
+            8,
+            json!({ "previous_device": "old-8", "current_device": "new-8" }),
+        ),
+        ("RateLimitReset", 9, json!({ "device": "dev-9" })),
+        (
+            "KeyExpirationExtended",
+            10,
+            json!({ "device": "dev-10", "new_expiry": "2026-08-01" }),
+        ),
+        (
+            "KeyIssued",
+            11,
+            json!({ "device": "dev-11", "subscription": "enterprise" }),
+        ),
+        ("KeyRevoked", 12, json!({ "device": "dev-12" })),
+    ];
+
+    for (offset, (event_type, aggregate_id, payload)) in events.iter().enumerate() {
+        let occurred_at = base + Duration::minutes(offset as i64);
+        sqlx::query(
+            r#"INSERT INTO audit_log (event_type, aggregate_id, actor, payload, occurred_at)
+               VALUES ($1, $2, $3, $4, $5)"#,
+        )
+        .bind(event_type)
+        .bind(aggregate_id)
+        .bind(TEST_ACTOR)
+        .bind(payload)
+        .bind(occurred_at)
+        .execute(&pool)
+        .await
+        .expect("seed audit_log row");
+    }
+
+    let activity = recent_admin_activity(&pool, 10)
+        .await
+        .expect("query recent admin activity");
+
+    // Capped at ten, newest first — the two oldest (offsets 0 and 1) drop off.
+    assert_eq!(activity.len(), 10, "limit caps the feed at ten");
+    let aggregate_ids: Vec<Option<i32>> = activity.iter().map(|e| e.aggregate_id).collect();
+    assert_eq!(
+        aggregate_ids,
+        vec![
+            Some(12),
+            Some(11),
+            Some(10),
+            Some(9),
+            Some(8),
+            Some(7),
+            Some(6),
+            Some(5),
+            Some(4),
+            Some(3),
+        ],
+        "newest first, oldest two dropped"
+    );
+
+    // Each event type renders its summary sentence.
+    assert_eq!(activity[0].event_type, "KeyRevoked");
+    assert_eq!(activity[0].summary, "Key #12 revoked on device dev-12");
+    assert_eq!(activity[1].event_type, "KeyIssued");
+    assert_eq!(
+        activity[1].summary,
+        "Key #11 issued on device dev-11 (enterprise)"
+    );
+    assert_eq!(activity[2].event_type, "KeyExpirationExtended");
+    assert_eq!(
+        activity[2].summary,
+        "Key #10 expiration extended to 2026-08-01"
+    );
+    assert_eq!(activity[3].event_type, "RateLimitReset");
+    assert_eq!(
+        activity[3].summary,
+        "Rate limit for Key #9 reset on device dev-9"
+    );
+    assert_eq!(activity[4].event_type, "DeviceReassigned");
+    assert_eq!(
+        activity[4].summary,
+        "Device for Key #8 reassigned from old-8 to new-8"
+    );
+
+    // The actor rides through for any later attribution column.
+    assert!(activity.iter().all(|e| e.actor == TEST_ACTOR));
+
+    // Clean up the rows this test seeded.
+    sqlx::query("DELETE FROM audit_log WHERE actor = $1")
+        .bind(TEST_ACTOR)
+        .execute(&pool)
+        .await
+        .expect("clean up seeded audit rows");
 }

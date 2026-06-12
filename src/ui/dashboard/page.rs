@@ -1,5 +1,6 @@
 use crate::server::insights_service::get_dashboard_insights;
 use crate::server::stats_service::get_dashboard_stats;
+use crate::ui::dashboard::activity_feed::ActivityFeed;
 use crate::ui::dashboard::charts::Charts;
 use crate::ui::dashboard::date_range_picker::DateRangePicker;
 use crate::ui::dashboard::expiring_keys::ExpiringKeys;
@@ -47,7 +48,10 @@ pub fn DashboardPage() -> impl IntoView {
                         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                     </div>
                 }>
-                    <ExpiringKeys insights=insights_signal/>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <ExpiringKeys insights=insights_signal/>
+                        <ActivityFeed insights=insights_signal/>
+                    </div>
                 </Suspense>
             </div>
         </Layout>

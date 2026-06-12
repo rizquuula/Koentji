@@ -186,10 +186,25 @@ pub struct ExpiringKey {
     pub days_left: i64,
 }
 
+/// One entry in the "Recent Admin Activity" feed — a single `audit_log` row
+/// projected for display. `summary` is a human sentence built server-side
+/// from the event type and its JSONB payload, so the view stays
+/// presentation-only. Unknown event types degrade to the bare verb.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEntry {
+    pub event_type: String,
+    pub aggregate_id: Option<i32>,
+    pub actor: String,
+    pub summary: String,
+    pub occurred_at: DateTime<Utc>,
+}
+
 /// Current-state dashboard insights, independent of the date-range picker.
-/// Holds only the "Expiring Soon" list today; later steps fold in more
-/// at-a-glance signals, so callers should treat extra fields as expected.
+/// Holds the "Expiring Soon" list and the "Recent Admin Activity" feed;
+/// later steps fold in more at-a-glance signals, so callers should treat
+/// extra fields as expected.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardInsights {
     pub expiring_keys: Vec<ExpiringKey>,
+    pub recent_activity: Vec<AuditEntry>,
 }
