@@ -79,6 +79,17 @@ pub struct QuotaPressureRow {
     pub limit: Option<f64>,
 }
 
+/// Window-wide rollup for the summary stat cards. `p95_us` is `Option`
+/// because an empty window has no latency to report (renders "—").
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WindowSummary {
+    pub total: u64,
+    pub denied: u64,
+    pub p95_us: Option<f64>,
+    pub unique_keys: u64,
+    pub unique_devices: u64,
+}
+
 /// Microseconds → milliseconds for display. Pure (TDD'd) so the conversion
 /// lives in one tested place rather than scattered across the wire layer.
 pub fn micros_to_millis(micros: f64) -> f64 {
@@ -94,6 +105,7 @@ pub struct AnalyticsSnapshot {
     pub denial_reasons: Vec<DenialReasonCount>,
     pub busiest_keys: Vec<KeyTrafficRow>,
     pub quota_pressure: Vec<QuotaPressureRow>,
+    pub summary: WindowSummary,
 }
 
 /// Fill `bucket_seconds`-aligned gaps so sparse traffic doesn't render a
@@ -228,6 +240,16 @@ struct QuotaRow {
     remaining: f64,
 }
 
+#[cfg(feature = "ssr")]
+#[derive(clickhouse::Row, serde::Deserialize)]
+struct SummaryRow {
+    total: u64,
+    denied: u64,
+    p95_us: f64,
+    unique_keys: u64,
+    unique_devices: u64,
+}
+
 #[server(GetAnalyticsSnapshot, "/api")]
 pub async fn get_analytics_snapshot(
     range: AnalyticsRange,
@@ -325,9 +347,29 @@ pub async fn get_analytics_snapshot(
         .bind(range_secs)
         .fetch_all::<QuotaRow>();
 
-    let (traffic_rows, latency_rows, denial_rows, busiest_rows, quota_rows) =
-        tokio::try_join!(traffic_fut, latency_fut, denial_fut, busiest_fut, quota_fut)
-            .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let summary_fut = client
+        .query(
+            "SELECT count() AS total,
+                    countIf(decision = 'denied') AS denied,
+                    quantile(0.95)(latency_us) AS p95_us,
+                    uniqExact(auth_key) AS unique_keys,
+                    uniqExact(device_id) AS unique_devices
+             FROM auth_events
+             WHERE ts >= now() - INTERVAL ? second",
+        )
+        .bind(range_secs)
+        .fetch_all::<SummaryRow>();
+
+    let (traffic_rows, latency_rows, denial_rows, busiest_rows, quota_rows, summary_rows) =
+        tokio::try_join!(
+            traffic_fut,
+            latency_fut,
+            denial_fut,
+            busiest_fut,
+            quota_fut,
+            summary_fut
+        )
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     let queried_traffic: Vec<TrafficBucket> = traffic_rows
         .into_iter()
@@ -397,6 +439,31 @@ pub async fn get_analytics_snapshot(
         })
         .collect();
 
+    // Aggregate-only query always returns exactly one row. An empty window
+    // yields total = 0; collapse the meaningless p95 (0/NaN) to `None` so the
+    // card shows "—" rather than a fake "0 ms".
+    let summary = summary_rows
+        .into_iter()
+        .next()
+        .map(|r| WindowSummary {
+            total: r.total,
+            denied: r.denied,
+            p95_us: if r.total == 0 || r.p95_us.is_nan() {
+                None
+            } else {
+                Some(r.p95_us)
+            },
+            unique_keys: r.unique_keys,
+            unique_devices: r.unique_devices,
+        })
+        .unwrap_or(WindowSummary {
+            total: 0,
+            denied: 0,
+            p95_us: None,
+            unique_keys: 0,
+            unique_devices: 0,
+        });
+
     let now_unix_ms = chrono::Utc::now().timestamp_millis();
     let traffic = fill_missing_buckets(&queried_traffic, now_unix_ms, range);
     let latency = fill_missing_latency_buckets(&queried_latency, now_unix_ms, range);
@@ -407,6 +474,7 @@ pub async fn get_analytics_snapshot(
         denial_reasons,
         busiest_keys,
         quota_pressure,
+        summary,
     })
 }
 
