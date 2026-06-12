@@ -1,6 +1,11 @@
 use crate::models::AuthenticationKey;
 use leptos::prelude::*;
 
+// Heroicons "copy" and "check" outline path data. The copy buttons swap to the
+// check for 3s after a successful copy, then revert to the copy icon.
+const COPY_ICON_PATH: &str = "M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z";
+const CHECK_ICON_PATH: &str = "M5 13l4 4L19 7";
+
 #[component]
 pub fn KeyRow(
     key: AuthenticationKey,
@@ -20,6 +25,24 @@ pub fn KeyRow(
     let device_id = key.device_id.clone();
     let masked_device = key.masked_device_id();
     let device_revealed = RwSignal::new(false);
+
+    // Copy buttons flash a checkmark for 3s after a successful copy.
+    let key_copied = RwSignal::new(false);
+    let device_copied = RwSignal::new(false);
+    let key_copy_icon = move || {
+        if key_copied.get() {
+            CHECK_ICON_PATH
+        } else {
+            COPY_ICON_PATH
+        }
+    };
+    let device_copy_icon = move || {
+        if device_copied.get() {
+            CHECK_ICON_PATH
+        } else {
+            COPY_ICON_PATH
+        }
+    };
 
     let status_badge_class = match status.as_str() {
         "active" => "bg-green-100 text-green-800",
@@ -56,13 +79,25 @@ pub fn KeyRow(
     let handle_copy = move |_| {
         if let Some(k) = revealed_key.get() {
             copy_to_clipboard(&k);
+            key_copied.set(true);
+            set_timeout(
+                move || key_copied.set(false),
+                std::time::Duration::from_secs(3),
+            );
         }
     };
 
     let toggle_device = move |_| device_revealed.update(|shown| *shown = !*shown);
     let copy_device = {
         let device_id = device_id.clone();
-        move |_| copy_to_clipboard(&device_id)
+        move |_| {
+            copy_to_clipboard(&device_id);
+            device_copied.set(true);
+            set_timeout(
+                move || device_copied.set(false),
+                std::time::Duration::from_secs(3),
+            );
+        }
     };
     let device_full = device_id.clone();
 
@@ -101,7 +136,7 @@ pub fn KeyRow(
                         aria-label="Copy key to clipboard"
                     >
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d=key_copy_icon/>
                         </svg>
                     </button>
                 </div>
@@ -142,7 +177,7 @@ pub fn KeyRow(
                         aria-label="Copy device ID to clipboard"
                     >
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d=device_copy_icon/>
                         </svg>
                     </button>
                 </div>
