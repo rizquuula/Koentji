@@ -66,23 +66,9 @@ pub async fn get_dashboard_stats(
     .await
     .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    let sub_rows: Vec<(Option<String>, i64)> = sqlx::query_as(
-        r#"SELECT subscription, COUNT(*) as count FROM authentication_keys
-           WHERE ($1::timestamptz IS NULL OR created_at >= $1)
-             AND ($2::timestamptz IS NULL OR created_at <= $2)
-           GROUP BY subscription
-           ORDER BY count DESC"#,
-    )
-    .bind(start)
-    .bind(end)
-    .fetch_all(pool.get_ref())
-    .await
-    .map_err(|e| ServerFnError::new(e.to_string()))?;
-
-    let subscription_distribution: Vec<(String, i64)> = sub_rows
-        .into_iter()
-        .map(|(s, c)| (s.unwrap_or_else(|| "None".to_string()), c))
-        .collect();
+    let subscription_distribution = subscription_distribution(pool.get_ref(), start, end)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     let rate_limit_buckets: Vec<(String, i64)> = sqlx::query_as(
         r#"SELECT
@@ -173,4 +159,39 @@ pub fn resolve_date_range(
         }
         _ => (None, None),
     }
+}
+
+/// Subscription distribution for the chart: one `(label, count)` per group,
+/// most-populated first. Groups by the `subscription_types` FK
+/// (`display_name`) and only falls back to the legacy `subscription` VARCHAR
+/// for keys whose FK is unmapped; a key with neither reads as `'None'`.
+///
+/// The window bounds are bound as NULL-able `timestamptz` parameters — the
+/// same shape as every other query in this module, which closes the old
+/// `format!`-based SQL-injection hole (B8). Nothing user-controlled reaches
+/// the query as interpolated text. Exposed at the pool level (mirroring
+/// `resolve_date_range`) so the integration suite can call it without a
+/// Leptos request context.
+#[cfg(feature = "ssr")]
+pub async fn subscription_distribution(
+    pool: &sqlx::PgPool,
+    start: Option<chrono::DateTime<chrono::Utc>>,
+    end: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<Vec<(String, i64)>, sqlx::Error> {
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        r#"SELECT COALESCE(st.display_name, ak.subscription, 'None') AS label,
+                  COUNT(*) AS count
+               FROM authentication_keys ak
+               LEFT JOIN subscription_types st ON st.id = ak.subscription_type_id
+               WHERE ($1::timestamptz IS NULL OR ak.created_at >= $1)
+                 AND ($2::timestamptz IS NULL OR ak.created_at <= $2)
+               GROUP BY label
+               ORDER BY count DESC"#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
 }

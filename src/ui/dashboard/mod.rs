@@ -6,5 +6,6 @@ pub mod date_range_picker;
 pub mod expiring_keys;
 pub mod page;
 pub mod stats_cards;
+pub mod tier_health;
 
 pub use page::DashboardPage;

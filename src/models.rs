@@ -199,12 +199,27 @@ pub struct AuditEntry {
     pub occurred_at: DateTime<Utc>,
 }
 
+/// One subscription tier's health snapshot for the dashboard "Tier Health"
+/// table: its quota and interval, whether the catalogue still lists it as
+/// active, and how many *live* keys (not deleted, not expired) it currently
+/// carries. An inactive tier with a non-zero `active_keys` is the anomaly the
+/// widget exists to surface.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierHealth {
+    pub display_name: String,
+    pub rate_limit_amount: i64,
+    pub interval: String,
+    pub is_active: bool,
+    pub active_keys: i64,
+}
+
 /// Current-state dashboard insights, independent of the date-range picker.
-/// Holds the "Expiring Soon" list and the "Recent Admin Activity" feed;
-/// later steps fold in more at-a-glance signals, so callers should treat
-/// extra fields as expected.
+/// Holds the "Expiring Soon" list, the "Recent Admin Activity" feed, and the
+/// "Tier Health" table; later steps fold in more at-a-glance signals, so
+/// callers should treat extra fields as expected.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardInsights {
     pub expiring_keys: Vec<ExpiringKey>,
     pub recent_activity: Vec<AuditEntry>,
+    pub tier_health: Vec<TierHealth>,
 }

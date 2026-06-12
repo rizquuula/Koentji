@@ -13,7 +13,8 @@ mod common;
 
 use chrono::{Duration, TimeZone, Utc};
 use common::fresh_pool;
-use koentji::server::insights_service::{expiring_keys, recent_admin_activity};
+use koentji::server::insights_service::{expiring_keys, recent_admin_activity, tier_health};
+use koentji::server::stats_service::subscription_distribution;
 use serde_json::json;
 
 #[tokio::test]
@@ -225,4 +226,250 @@ async fn recent_admin_activity_returns_newest_ten_with_summaries() {
         .execute(&pool)
         .await
         .expect("clean up seeded audit rows");
+}
+
+/// `tier_health` reports one row per subscription tier — including inactive
+/// and zero-key tiers — carrying its quota, interval, active state, and a live
+/// key count. The headline anomaly the widget exists to surface is an
+/// *inactive* tier that still has live keys, so this seeds exactly that case.
+///
+/// Seeds a temp interval + two temp tiers (one active, one inactive) and three
+/// keys: an active key on the active tier, an active key on the INACTIVE tier,
+/// and a deleted key on the active tier that must not count. All seeded rows
+/// carry the `klab_tier_` prefix and are cleaned up FK-safe (keys first, then
+/// tiers, then the interval).
+#[tokio::test]
+async fn tier_health_counts_live_keys_per_tier_and_flags_inactive_with_keys() {
+    let pool = fresh_pool().await;
+
+    // A recognizable temp interval the two tiers point at.
+    let interval_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO rate_limit_intervals (name, display_name, duration_seconds)
+           VALUES ('klab_tier_interval', 'Klab Tier Window', 3600)
+           RETURNING id"#,
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("seed temp interval");
+
+    // An ACTIVE tier and an INACTIVE tier, both on the temp interval, with
+    // distinct quotas so the ride-through is observable.
+    let active_tier_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO subscription_types
+               (name, display_name, rate_limit_amount, rate_limit_interval_id, is_active)
+           VALUES ('klab_tier_active', 'Klab Tier Active', 12000, $1, true)
+           RETURNING id"#,
+    )
+    .bind(interval_id)
+    .fetch_one(&pool)
+    .await
+    .expect("seed active tier");
+
+    let inactive_tier_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO subscription_types
+               (name, display_name, rate_limit_amount, rate_limit_interval_id, is_active)
+           VALUES ('klab_tier_inactive', 'Klab Tier Inactive', 34000, $1, false)
+           RETURNING id"#,
+    )
+    .bind(interval_id)
+    .fetch_one(&pool)
+    .await
+    .expect("seed inactive tier");
+
+    // Active key on the active tier — counts.
+    sqlx::query(
+        r#"INSERT INTO authentication_keys
+               (key, device_id, subscription, rate_limit_daily, rate_limit_remaining,
+                subscription_type_id, rate_limit_interval_id, created_by)
+           VALUES ('klab_tier_k_active', 'klab_tier_d1', 'klab_tier_active', 12000, 12000,
+                   $1, $2, 'test')"#,
+    )
+    .bind(active_tier_id)
+    .bind(interval_id)
+    .execute(&pool)
+    .await
+    .expect("seed active-tier key");
+
+    // Deleted key on the active tier — must NOT count.
+    sqlx::query(
+        r#"INSERT INTO authentication_keys
+               (key, device_id, subscription, rate_limit_daily, rate_limit_remaining,
+                subscription_type_id, rate_limit_interval_id, created_by, deleted_at)
+           VALUES ('klab_tier_k_deleted', 'klab_tier_d2', 'klab_tier_active', 12000, 12000,
+                   $1, $2, 'test', NOW())"#,
+    )
+    .bind(active_tier_id)
+    .bind(interval_id)
+    .execute(&pool)
+    .await
+    .expect("seed deleted active-tier key");
+
+    // Active key on the INACTIVE tier — the anomaly: an inactive tier with a
+    // live key.
+    sqlx::query(
+        r#"INSERT INTO authentication_keys
+               (key, device_id, subscription, rate_limit_daily, rate_limit_remaining,
+                subscription_type_id, rate_limit_interval_id, created_by)
+           VALUES ('klab_tier_k_inactive', 'klab_tier_d3', 'klab_tier_inactive', 34000, 34000,
+                   $1, $2, 'test')"#,
+    )
+    .bind(inactive_tier_id)
+    .bind(interval_id)
+    .execute(&pool)
+    .await
+    .expect("seed inactive-tier key");
+
+    let rows = tier_health(&pool).await.expect("query tier health");
+
+    let active = rows
+        .iter()
+        .find(|r| r.display_name == "Klab Tier Active")
+        .expect("active tier present");
+    let inactive = rows
+        .iter()
+        .find(|r| r.display_name == "Klab Tier Inactive")
+        .expect("inactive tier present");
+
+    // The deleted key is excluded; only the one live key counts.
+    assert_eq!(
+        active.active_keys, 1,
+        "active tier: only the live key counts"
+    );
+    assert!(active.is_active, "active tier flagged active");
+    assert_eq!(
+        active.rate_limit_amount, 12000,
+        "active tier quota rides through"
+    );
+    assert_eq!(
+        active.interval, "Klab Tier Window",
+        "active tier interval rides through"
+    );
+
+    // The inactive tier still has a live key — the anomaly.
+    assert_eq!(
+        inactive.active_keys, 1,
+        "inactive tier still has a live key"
+    );
+    assert!(!inactive.is_active, "inactive tier flagged inactive");
+    assert_eq!(
+        inactive.rate_limit_amount, 34000,
+        "inactive tier quota rides through"
+    );
+
+    // Clean up FK-safe: keys, then tiers, then the interval. (Seeded catalogue
+    // rows in the shared DB are otherwise long-lived.)
+    sqlx::query("DELETE FROM authentication_keys WHERE key LIKE 'klab_tier_%'")
+        .execute(&pool)
+        .await
+        .expect("clean up seeded keys");
+    sqlx::query("DELETE FROM subscription_types WHERE name LIKE 'klab_tier_%'")
+        .execute(&pool)
+        .await
+        .expect("clean up seeded tiers");
+    sqlx::query("DELETE FROM rate_limit_intervals WHERE name LIKE 'klab_tier_%'")
+        .execute(&pool)
+        .await
+        .expect("clean up seeded interval");
+}
+
+/// The subscription-distribution chart groups by the `subscription_types` FK
+/// (`display_name`) and only falls back to the legacy `subscription` VARCHAR
+/// for keys with no FK mapping. Seeds one mapped key (groups under the tier's
+/// display_name) and one unmapped key (NULL FK, legacy string only — groups
+/// under that raw string). Window binds are `(None, None)` so all rows count.
+#[tokio::test]
+async fn subscription_distribution_groups_by_tier_display_name_with_legacy_fallback() {
+    let pool = fresh_pool().await;
+
+    // A recognizable temp interval + tier so the mapped key has a display_name
+    // distinct from its legacy `subscription` string.
+    let interval_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO rate_limit_intervals (name, display_name, duration_seconds)
+           VALUES ('klab_dist_interval', 'Klab Dist Window', 3600)
+           RETURNING id"#,
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("seed temp interval");
+
+    let tier_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO subscription_types
+               (name, display_name, rate_limit_amount, rate_limit_interval_id, is_active)
+           VALUES ('klab_dist_tier', 'Klab Dist Tier', 9000, $1, true)
+           RETURNING id"#,
+    )
+    .bind(interval_id)
+    .fetch_one(&pool)
+    .await
+    .expect("seed tier");
+
+    // Mapped key: FK set — must group under the tier's display_name, NOT its
+    // legacy `subscription` string.
+    sqlx::query(
+        r#"INSERT INTO authentication_keys
+               (key, device_id, subscription, rate_limit_daily, rate_limit_remaining,
+                subscription_type_id, rate_limit_interval_id, created_by)
+           VALUES ('klab_dist_mapped', 'klab_dist_d1', 'klab_dist_tier', 9000, 9000,
+                   $1, $2, 'test')"#,
+    )
+    .bind(tier_id)
+    .bind(interval_id)
+    .execute(&pool)
+    .await
+    .expect("seed mapped key");
+
+    // Unmapped key: NULL FK, only a legacy `subscription` string — must group
+    // under that raw string.
+    sqlx::query(
+        r#"INSERT INTO authentication_keys
+               (key, device_id, subscription, rate_limit_daily, rate_limit_remaining,
+                subscription_type_id, rate_limit_interval_id, created_by)
+           VALUES ('klab_dist_legacy', 'klab_dist_d2', 'klab_dist_legacy_label', 9000, 9000,
+                   NULL, $1, 'test')"#,
+    )
+    .bind(interval_id)
+    .execute(&pool)
+    .await
+    .expect("seed legacy key");
+
+    // No window — all rows count.
+    let rows = subscription_distribution(&pool, None, None)
+        .await
+        .expect("query subscription distribution");
+
+    let mapped = rows
+        .iter()
+        .find(|(label, _)| label == "Klab Dist Tier")
+        .expect("mapped key groups under tier display_name");
+    assert_eq!(mapped.1, 1, "one mapped key under the tier display_name");
+
+    let legacy = rows
+        .iter()
+        .find(|(label, _)| label == "klab_dist_legacy_label")
+        .expect("unmapped key groups under its legacy string");
+    assert_eq!(
+        legacy.1, 1,
+        "one legacy key under its raw subscription string"
+    );
+
+    // The mapped key must NOT also appear under its legacy `subscription`
+    // string — the FK display_name wins.
+    assert!(
+        !rows.iter().any(|(label, _)| label == "klab_dist_tier"),
+        "mapped key does not leak under its raw FK name"
+    );
+
+    // Clean up FK-safe: keys, then tier, then interval.
+    sqlx::query("DELETE FROM authentication_keys WHERE key LIKE 'klab_dist_%'")
+        .execute(&pool)
+        .await
+        .expect("clean up seeded keys");
+    sqlx::query("DELETE FROM subscription_types WHERE name LIKE 'klab_dist_%'")
+        .execute(&pool)
+        .await
+        .expect("clean up seeded tier");
+    sqlx::query("DELETE FROM rate_limit_intervals WHERE name LIKE 'klab_dist_%'")
+        .execute(&pool)
+        .await
+        .expect("clean up seeded interval");
 }

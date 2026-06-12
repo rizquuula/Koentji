@@ -20,10 +20,71 @@ pub async fn get_dashboard_insights() -> Result<DashboardInsights, ServerFnError
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
+    let tier_health = tier_health(pool.get_ref())
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
     Ok(DashboardInsights {
         expiring_keys: expiring,
         recent_activity,
+        tier_health,
     })
+}
+
+/// One row per subscription tier — *every* tier, including inactive and
+/// zero-key ones — with its quota, interval, active flag, and a count of the
+/// *live* keys it carries (not deleted, not yet expired). The `LEFT JOIN`
+/// keeps tiers with no keys; the `FILTER` excludes deleted/expired keys from
+/// the count without dropping the tier row. Ordered most-populated first,
+/// display_name as the stable tiebreak. Exposed at the pool level (mirroring
+/// `expiring_keys`) so the integration suite can call it without a Leptos
+/// request context.
+#[cfg(feature = "ssr")]
+pub async fn tier_health(
+    pool: &sqlx::PgPool,
+) -> Result<Vec<crate::models::TierHealth>, sqlx::Error> {
+    let rows: Vec<TierHealthRow> = sqlx::query_as(
+        r#"SELECT st.display_name,
+                  st.rate_limit_amount::bigint AS rate_limit_amount,
+                  rli.display_name AS interval,
+                  st.is_active,
+                  COUNT(ak.id) FILTER (
+                      WHERE ak.deleted_at IS NULL
+                        AND (ak.expired_at IS NULL OR ak.expired_at > NOW())
+                  ) AS active_keys
+               FROM subscription_types st
+               JOIN rate_limit_intervals rli ON rli.id = st.rate_limit_interval_id
+               LEFT JOIN authentication_keys ak ON ak.subscription_type_id = st.id
+               GROUP BY st.id, st.display_name, st.rate_limit_amount, rli.display_name, st.is_active
+               ORDER BY active_keys DESC, st.display_name"#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let tiers = rows
+        .into_iter()
+        .map(|row| crate::models::TierHealth {
+            display_name: row.display_name,
+            rate_limit_amount: row.rate_limit_amount,
+            interval: row.interval,
+            is_active: row.is_active,
+            active_keys: row.active_keys,
+        })
+        .collect();
+
+    Ok(tiers)
+}
+
+/// Raw projection of the tier-health query. Kept private to this module — the
+/// public type is `crate::models::TierHealth`.
+#[cfg(feature = "ssr")]
+#[derive(sqlx::FromRow)]
+struct TierHealthRow {
+    display_name: String,
+    rate_limit_amount: i64,
+    interval: String,
+    is_active: bool,
+    active_keys: i64,
 }
 
 /// The ≤10 soonest-expiring active keys lapsing within the next 30 days,
