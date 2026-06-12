@@ -6,6 +6,15 @@ use leptos::prelude::*;
 const COPY_ICON_PATH: &str = "M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z";
 const CHECK_ICON_PATH: &str = "M5 13l4 4L19 7";
 
+/// Tidy a rate-limit figure to at most 2 decimals, dropping trailing zeros so
+/// whole numbers read cleanly (`6000.0` → "6000") and float noise is hidden
+/// (`5377.899999999991` → "5377.9"). The ledger keeps the exact `f64`; only the
+/// on-screen readout is rounded.
+fn fmt_amount(value: f64) -> String {
+    let s = format!("{value:.2}");
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
 #[component]
 pub fn KeyRow(
     key: AuthenticationKey,
@@ -204,7 +213,7 @@ pub fn KeyRow(
                         />
                     </div>
                     <span class="text-[10px] text-gray-500">
-                        {format!("{}/{}", key.rate_limit_remaining, key.rate_limit_daily)}
+                        {format!("{}/{}", fmt_amount(key.rate_limit_remaining), fmt_amount(key.rate_limit_daily))}
                     </span>
                 </div>
             </td>
@@ -316,4 +325,27 @@ fn copy_via_textarea(win: &web_sys::Window, text: &str) -> Option<()> {
     let _ = html_document.exec_command("copy");
     let _ = body.remove_child(&textarea);
     Some(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fmt_amount;
+
+    #[test]
+    fn fmt_amount_hides_float_noise() {
+        // The reported case: a fractional ledger leaving float drift.
+        assert_eq!(fmt_amount(5377.899999999991), "5377.9");
+    }
+
+    #[test]
+    fn fmt_amount_drops_trailing_zeros() {
+        assert_eq!(fmt_amount(6000.0), "6000");
+        assert_eq!(fmt_amount(12.5), "12.5");
+        assert_eq!(fmt_amount(0.0), "0");
+    }
+
+    #[test]
+    fn fmt_amount_rounds_to_two_decimals() {
+        assert_eq!(fmt_amount(1234.567), "1234.57");
+    }
 }
