@@ -24,10 +24,25 @@ pub async fn get_dashboard_insights() -> Result<DashboardInsights, ServerFnError
         .await
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
+    let unclaimed = unclaimed_keys(pool.get_ref(), 10)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let dormant = dormant_keys(pool.get_ref(), 10)
+        .await
+        .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    let key_hygiene = crate::models::KeyHygiene {
+        unclaimed: unclaimed.rows,
+        unclaimed_total: unclaimed.total,
+        dormant: dormant.rows,
+        dormant_total: dormant.total,
+    };
+
     Ok(DashboardInsights {
         expiring_keys: expiring,
         recent_activity,
         tier_health,
+        key_hygiene,
     })
 }
 
@@ -152,6 +167,126 @@ fn days_left(now: chrono::DateTime<chrono::Utc>, expired_at: chrono::DateTime<ch
 #[cfg(feature = "ssr")]
 const SECONDS_PER_DAY: i64 = 86_400;
 
+/// The unclaimed-device sentinel: a pre-issued key not yet bound to a real
+/// device carries `device_id = '-'`. Mirrors `domain::authentication::DeviceId`.
+#[cfg(feature = "ssr")]
+const UNCLAIMED_SENTINEL: &str = "-";
+
+/// Pre-issued keys still on the `-` sentinel — issued, never adopted by a real
+/// device — oldest first (they've waited longest), capped at `limit`. Returns
+/// the capped rows plus the full population `total` (via `COUNT(*) OVER ()`) so
+/// the panel can render "Showing N of M". Active only: `deleted_at IS NULL`.
+/// Exposed at the pool level (mirroring `expiring_keys`) so the integration
+/// suite can call it without a Leptos request context.
+#[cfg(feature = "ssr")]
+pub async fn unclaimed_keys(
+    pool: &sqlx::PgPool,
+    limit: i64,
+) -> Result<crate::models::HygieneSet, sqlx::Error> {
+    let rows: Vec<HygieneRow> = sqlx::query_as(
+        r#"SELECT key, username, email, device_id, created_at,
+                  COUNT(*) OVER () AS total
+               FROM authentication_keys
+               WHERE device_id = $1
+                 AND deleted_at IS NULL
+               ORDER BY created_at ASC
+               LIMIT $2"#,
+    )
+    .bind(UNCLAIMED_SENTINEL)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    // The sentinel device is not a real binding — drop it from the row so the
+    // view shows "—" rather than the bare `-`.
+    Ok(into_hygiene_set(rows, chrono::Utc::now(), false))
+}
+
+/// Dormant keys: *claimed* (a real device, not the `-` sentinel) and live, with
+/// quota never touched (`rate_limit_remaining >= rate_limit_daily` — `>=` is
+/// float-safe and tolerates a manual quota bump). Excludes the sentinel so a
+/// pre-issued row never double-counts as both unclaimed and dormant. Oldest
+/// first, capped at `limit`, with the full population `total` alongside.
+/// Exposed at the pool level so the integration suite can call it directly.
+#[cfg(feature = "ssr")]
+pub async fn dormant_keys(
+    pool: &sqlx::PgPool,
+    limit: i64,
+) -> Result<crate::models::HygieneSet, sqlx::Error> {
+    let rows: Vec<HygieneRow> = sqlx::query_as(
+        r#"SELECT key, username, email, device_id, created_at,
+                  COUNT(*) OVER () AS total
+               FROM authentication_keys
+               WHERE device_id <> $1
+                 AND deleted_at IS NULL
+                 AND (expired_at IS NULL OR expired_at > NOW())
+                 AND rate_limit_remaining >= rate_limit_daily
+               ORDER BY created_at ASC
+               LIMIT $2"#,
+    )
+    .bind(UNCLAIMED_SENTINEL)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(into_hygiene_set(rows, chrono::Utc::now(), true))
+}
+
+/// Raw projection of the hygiene queries. `total` rides on every row via
+/// `COUNT(*) OVER ()` (the same value on each), so an empty result set yields a
+/// `total` of 0. Kept private — the public types are `crate::models::HygieneSet`
+/// and `crate::models::HygieneKey`.
+#[cfg(feature = "ssr")]
+#[derive(sqlx::FromRow)]
+struct HygieneRow {
+    key: String,
+    username: Option<String>,
+    email: Option<String>,
+    device_id: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    total: i64,
+}
+
+/// Fold raw hygiene rows into a `HygieneSet`, computing `age_days` against
+/// `now` and keeping the device only when `keep_device` (dormant rows carry a
+/// real device; unclaimed rows drop the `-` sentinel). The `total` is read off
+/// the first row — every row carries the same window count — and is 0 for an
+/// empty set.
+#[cfg(feature = "ssr")]
+fn into_hygiene_set(
+    rows: Vec<HygieneRow>,
+    now: chrono::DateTime<chrono::Utc>,
+    keep_device: bool,
+) -> crate::models::HygieneSet {
+    let total = rows.first().map(|r| r.total).unwrap_or(0);
+    let keys = rows
+        .into_iter()
+        .map(|row| crate::models::HygieneKey {
+            age_days: age_days(now, row.created_at),
+            device_id: keep_device.then_some(row.device_id),
+            key: row.key,
+            username: row.username,
+            email: row.email,
+            created_at: row.created_at,
+        })
+        .collect();
+
+    crate::models::HygieneSet { rows: keys, total }
+}
+
+/// Whole days a key has existed: floor of the elapsed duration since
+/// `created_at`, so a key reads as "12d" once it's at least twelve full days
+/// old. Clock skew (a `created_at` in the future) clamps to 0. Pure, so the
+/// arithmetic is pinned by unit tests.
+#[cfg(feature = "ssr")]
+fn age_days(now: chrono::DateTime<chrono::Utc>, created_at: chrono::DateTime<chrono::Utc>) -> i64 {
+    let seconds = (now - created_at).num_seconds();
+    if seconds <= 0 {
+        return 0;
+    }
+    seconds / SECONDS_PER_DAY
+}
+
 /// The last `limit` admin events, newest first. This is the first read path
 /// for `audit_log` (until now write-only); `(occurred_at DESC, id DESC)` rides
 /// the `idx_audit_log_occurred_at` index and breaks ties on the monotonic id
@@ -265,8 +400,34 @@ fn activity_summary(
 
 #[cfg(all(test, feature = "ssr"))]
 mod tests {
-    use super::activity_summary;
+    use super::{activity_summary, age_days};
+    use chrono::{Duration, TimeZone, Utc};
     use serde_json::json;
+
+    #[test]
+    fn age_days_floors_whole_days_elapsed() {
+        let created = Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap();
+        // Exactly 12 days later reads as 12.
+        assert_eq!(age_days(created + Duration::days(12), created), 12);
+        // A partial 13th day still reads as 12 (floor).
+        assert_eq!(
+            age_days(created + Duration::days(12) + Duration::hours(23), created),
+            12
+        );
+    }
+
+    #[test]
+    fn age_days_brand_new_key_is_zero() {
+        let created = Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap();
+        assert_eq!(age_days(created, created), 0);
+        assert_eq!(age_days(created + Duration::hours(5), created), 0);
+    }
+
+    #[test]
+    fn age_days_future_created_at_clamps_to_zero() {
+        let created = Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap();
+        assert_eq!(age_days(created - Duration::days(3), created), 0);
+    }
 
     #[test]
     fn key_issued_reads_device_and_subscription() {

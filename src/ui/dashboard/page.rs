@@ -4,6 +4,7 @@ use crate::ui::dashboard::activity_feed::ActivityFeed;
 use crate::ui::dashboard::charts::Charts;
 use crate::ui::dashboard::date_range_picker::DateRangePicker;
 use crate::ui::dashboard::expiring_keys::ExpiringKeys;
+use crate::ui::dashboard::key_hygiene::KeyHygiene;
 use crate::ui::dashboard::stats_cards::StatsCards;
 use crate::ui::dashboard::tier_health::TierHealthPanel;
 use crate::ui::shell::layout::Layout;
@@ -55,6 +56,7 @@ pub fn DashboardPage() -> impl IntoView {
                             <ActivityFeed insights=insights_signal/>
                         </div>
                         <TierHealthPanel insights=insights_signal/>
+                        <KeyHygiene insights=insights_signal/>
                     </div>
                 </Suspense>
             </div>

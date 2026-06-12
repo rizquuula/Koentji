@@ -13,7 +13,9 @@ mod common;
 
 use chrono::{Duration, TimeZone, Utc};
 use common::fresh_pool;
-use koentji::server::insights_service::{expiring_keys, recent_admin_activity, tier_health};
+use koentji::server::insights_service::{
+    dormant_keys, expiring_keys, recent_admin_activity, tier_health, unclaimed_keys,
+};
 use koentji::server::stats_service::subscription_distribution;
 use serde_json::json;
 
@@ -472,4 +474,153 @@ async fn subscription_distribution_groups_by_tier_display_name_with_legacy_fallb
         .execute(&pool)
         .await
         .expect("clean up seeded interval");
+}
+
+/// `unclaimed_keys` surfaces pre-issued rows still bound to the `'-'` sentinel
+/// device — issued, never adopted. Seeds two live sentinel rows, one claimed
+/// row (real device), and one deleted sentinel row; only the two live sentinels
+/// must return, oldest pre-issued first, with `total` = 2.
+#[tokio::test]
+async fn unclaimed_keys_returns_only_live_sentinels_oldest_first() {
+    let pool = fresh_pool().await;
+
+    let base = Utc.with_ymd_and_hms(2026, 6, 12, 12, 0, 0).unwrap();
+
+    // Two live sentinel rows — the older one (klab_hyg_unclaimed_old) was
+    // pre-issued first, so it must lead.
+    common::a_key()
+        .with_key("klab_hyg_unclaimed_new")
+        .with_device("-")
+        .with_username("newer")
+        .insert(&pool)
+        .await;
+
+    common::a_key()
+        .with_key("klab_hyg_unclaimed_old")
+        .with_device("-")
+        .with_email("older@example.com")
+        .insert(&pool)
+        .await;
+
+    // Force a deterministic created_at ordering: the "old" row predates the
+    // "new" row regardless of insert wall-clock.
+    sqlx::query(
+        "UPDATE authentication_keys SET created_at = $1 WHERE key = 'klab_hyg_unclaimed_old'",
+    )
+    .bind(base - Duration::days(5))
+    .execute(&pool)
+    .await
+    .expect("backdate old unclaimed key");
+    sqlx::query(
+        "UPDATE authentication_keys SET created_at = $1 WHERE key = 'klab_hyg_unclaimed_new'",
+    )
+    .bind(base - Duration::days(1))
+    .execute(&pool)
+    .await
+    .expect("backdate new unclaimed key");
+
+    // Excluded: claimed (real device), not a sentinel.
+    common::a_key()
+        .with_key("klab_hyg_claimed")
+        .with_device("dev-real")
+        .insert(&pool)
+        .await;
+
+    // Excluded: deleted sentinel.
+    common::a_key()
+        .with_key("klab_hyg_unclaimed_deleted")
+        .with_device("-")
+        .revoked()
+        .insert(&pool)
+        .await;
+
+    let hygiene = unclaimed_keys(&pool, 10).await.expect("query unclaimed");
+
+    let keys: Vec<&str> = hygiene.rows.iter().map(|r| r.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        vec!["klab_hyg_unclaimed_old", "klab_hyg_unclaimed_new"],
+        "only live sentinels, oldest pre-issued first"
+    );
+    assert_eq!(hygiene.total, 2, "total counts only live sentinels");
+    assert_eq!(
+        hygiene.rows[0].email.as_deref(),
+        Some("older@example.com"),
+        "owner fields ride through"
+    );
+
+    sqlx::query("DELETE FROM authentication_keys WHERE key LIKE 'klab_hyg_%'")
+        .execute(&pool)
+        .await
+        .expect("clean up seeded keys");
+}
+
+/// `dormant_keys` surfaces *claimed* keys whose quota is untouched
+/// (`rate_limit_remaining >= rate_limit_daily`) — issued, never used. Seeds a
+/// claimed full-quota key (returns), a claimed-and-consumed key (excluded), an
+/// expired full-quota key (excluded), and a full-quota *sentinel* row (excluded
+/// — that's unclaimed, not dormant, so the two lists never double-count).
+#[tokio::test]
+async fn dormant_keys_returns_only_claimed_full_quota_live_keys() {
+    let pool = fresh_pool().await;
+
+    // Claimed, full quota, live — the one dormant key.
+    common::a_key()
+        .with_key("klab_hyg_dormant")
+        .with_device("dev-dormant")
+        .with_username("idle")
+        .with_rate_limit(6000.0)
+        .insert(&pool)
+        .await;
+
+    // Excluded: claimed but consumed (remaining < daily).
+    common::a_key()
+        .with_key("klab_hyg_consumed")
+        .with_device("dev-consumed")
+        .with_rate_limit(6000.0)
+        .with_remaining(10.0)
+        .insert(&pool)
+        .await;
+
+    // Excluded: full quota but expired.
+    common::a_key()
+        .with_key("klab_hyg_expired")
+        .with_device("dev-expired")
+        .with_rate_limit(6000.0)
+        .expired()
+        .insert(&pool)
+        .await;
+
+    // Excluded: full-quota sentinel — unclaimed, must NOT double-count as
+    // dormant.
+    common::a_key()
+        .with_key("klab_hyg_sentinel")
+        .with_device("-")
+        .with_rate_limit(6000.0)
+        .insert(&pool)
+        .await;
+
+    let hygiene = dormant_keys(&pool, 10).await.expect("query dormant");
+
+    let keys: Vec<&str> = hygiene.rows.iter().map(|r| r.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        vec!["klab_hyg_dormant"],
+        "only the claimed, full-quota, live key is dormant"
+    );
+    assert_eq!(hygiene.total, 1, "total counts only the dormant key");
+    assert_eq!(
+        hygiene.rows[0].device_id.as_deref(),
+        Some("dev-dormant"),
+        "dormant rows carry the bound device"
+    );
+    assert!(
+        !keys.contains(&"klab_hyg_sentinel"),
+        "the unclaimed sentinel never double-counts as dormant"
+    );
+
+    sqlx::query("DELETE FROM authentication_keys WHERE key LIKE 'klab_hyg_%'")
+        .execute(&pool)
+        .await
+        .expect("clean up seeded keys");
 }

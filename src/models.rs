@@ -213,13 +213,51 @@ pub struct TierHealth {
     pub active_keys: i64,
 }
 
+/// One issued-but-unused key in the dashboard "Key Hygiene" panel — either an
+/// unclaimed pre-issued row (still on the `-` sentinel) or a dormant claimed
+/// key (full quota, never touched). `device_id` is `None` for the unclaimed
+/// population (the sentinel carries no real device) and `Some` for dormant
+/// rows. `age_days` is precomputed server-side so the view stays
+/// presentation-only.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HygieneKey {
+    pub key: String,
+    pub username: Option<String>,
+    pub email: Option<String>,
+    pub device_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub age_days: i64,
+}
+
+/// One issued-but-unused population for the "Key Hygiene" panel: the capped
+/// display `rows` plus the `total` count across the whole population, so the
+/// view can render "Showing 10 of N" when the list is truncated.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HygieneSet {
+    pub rows: Vec<HygieneKey>,
+    pub total: i64,
+}
+
+/// The dashboard "Key Hygiene" panel's two issued-but-unused populations:
+/// `unclaimed` pre-issued rows (still on the `-` sentinel) and `dormant`
+/// claimed keys (full quota, never used). Each carries its capped rows and the
+/// total population count.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct KeyHygiene {
+    pub unclaimed: Vec<HygieneKey>,
+    pub unclaimed_total: i64,
+    pub dormant: Vec<HygieneKey>,
+    pub dormant_total: i64,
+}
+
 /// Current-state dashboard insights, independent of the date-range picker.
-/// Holds the "Expiring Soon" list, the "Recent Admin Activity" feed, and the
-/// "Tier Health" table; later steps fold in more at-a-glance signals, so
-/// callers should treat extra fields as expected.
+/// Holds the "Expiring Soon" list, the "Recent Admin Activity" feed, the
+/// "Tier Health" table, and the "Key Hygiene" panel; later steps fold in more
+/// at-a-glance signals, so callers should treat extra fields as expected.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardInsights {
     pub expiring_keys: Vec<ExpiringKey>,
     pub recent_activity: Vec<AuditEntry>,
     pub tier_health: Vec<TierHealth>,
+    pub key_hygiene: KeyHygiene,
 }
