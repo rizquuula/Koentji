@@ -19,15 +19,17 @@
 use std::sync::Arc;
 
 use actix_web::http::StatusCode;
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use tracing::Instrument;
 use utoipa::ToSchema;
 
 use crate::application::{AuthOutcome, AuthenticateApiKey};
 use crate::domain::authentication::{
     AuthEvent, AuthEventDecision, AuthEventSink, AuthKey, DenialReason, DeviceId, RateLimitUsage,
 };
+use crate::infrastructure::telemetry::RequestId;
 use crate::interface::http::i18n::{status_code, DenialEnvelope};
 
 #[derive(ToSchema, Deserialize)]
@@ -83,11 +85,35 @@ pub struct AuthError {
 )]
 #[actix_web::post("/v1/auth")]
 pub async fn auth_endpoint(
+    req: HttpRequest,
     body: web::Json<AuthRequest>,
     handler: web::Data<Arc<AuthenticateApiKey>>,
     sink: web::Data<dyn AuthEventSink>,
 ) -> HttpResponse {
-    log::debug!("Auth request: device={}", body.auth_device);
+    // Pull the request id the middleware stashed in extensions and open a
+    // span for the whole use case. Every log line emitted while this future
+    // is polled — including the `log::error!`/`tracing::error!` calls down in
+    // the application layer — inherits `request_id`, so a failed `/v1/auth`
+    // in the access log joins straight to its cause.
+    let request_id = req
+        .extensions()
+        .get::<RequestId>()
+        .map(|r| r.as_str().to_owned())
+        .unwrap_or_else(|| "-".to_string());
+    let span = tracing::info_span!(
+        "auth",
+        request_id = %request_id,
+        device = %body.auth_device
+    );
+    run_auth(body, handler, sink).instrument(span).await
+}
+
+async fn run_auth(
+    body: web::Json<AuthRequest>,
+    handler: web::Data<Arc<AuthenticateApiKey>>,
+    sink: web::Data<dyn AuthEventSink>,
+) -> HttpResponse {
+    tracing::debug!("auth request received");
 
     let start = std::time::Instant::now();
     let now = Utc::now();
@@ -105,6 +131,7 @@ pub async fn auth_endpoint(
     let key = match AuthKey::parse(body.auth_key.clone()) {
         Ok(k) => k,
         Err(_) => {
+            tracing::warn!(reason = "malformed_key", "auth denied before lookup");
             emit_denied(
                 sink.get_ref(),
                 now,
@@ -121,6 +148,7 @@ pub async fn auth_endpoint(
     let device = match DeviceId::parse(body.auth_device.clone()) {
         Ok(d) => d,
         Err(_) => {
+            tracing::warn!(reason = "malformed_device", "auth denied before lookup");
             emit_denied(
                 sink.get_ref(),
                 now,
@@ -140,11 +168,11 @@ pub async fn auth_endpoint(
     let outcome = handler.execute(key, device, usage, now).await;
     match outcome {
         AuthOutcome::Success { key, remaining } => {
-            log::info!(
-                "Auth success: device={}, subscription={:?}, remaining={}",
-                key.device_id.as_str(),
-                key.subscription.as_ref().map(|s| s.as_str()),
-                remaining.value()
+            tracing::info!(
+                device = key.device_id.as_str(),
+                subscription = ?key.subscription.as_ref().map(|s| s.as_str()),
+                remaining = remaining.value(),
+                "auth success"
             );
             sink.record(AuthEvent {
                 occurred_at: now,
@@ -177,6 +205,11 @@ pub async fn auth_endpoint(
             let env = DenialEnvelope::from_reason(&reason);
             let status = StatusCode::from_u16(status_code(&reason))
                 .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            tracing::info!(
+                reason = reason_str(&reason),
+                status = status.as_u16(),
+                "auth denied"
+            );
             emit_denied(
                 sink.get_ref(),
                 now,

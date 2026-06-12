@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use clickhouse::Row;
 use serde::Serialize;
 use tokio::sync::mpsc;
@@ -51,6 +53,10 @@ impl From<AuthEvent> for AuthEventRow {
 
 pub struct ClickHouseAuthEventSink {
     tx: mpsc::Sender<AuthEvent>,
+    /// Running count of events the hot path had to drop because the
+    /// channel was full (or closed). Silent loss here would otherwise
+    /// make the analytics store quietly undercount under load.
+    dropped: AtomicU64,
 }
 
 impl ClickHouseAuthEventSink {
@@ -82,13 +88,17 @@ impl ClickHouseAuthEventSink {
                     }
                 }
 
+                let n = batch.len();
                 if let Err(e) = insert_batch(&client, batch).await {
-                    log::warn!("ClickHouse auth_events insert failed: {e}");
+                    tracing::warn!(events = n, error = %e, "ClickHouse auth_events insert failed");
                 }
             }
         });
 
-        Self { tx }
+        Self {
+            tx,
+            dropped: AtomicU64::new(0),
+        }
     }
 }
 
@@ -105,6 +115,17 @@ async fn insert_batch(
 
 impl AuthEventSink for ClickHouseAuthEventSink {
     fn record(&self, event: AuthEvent) {
-        let _ = self.tx.try_send(event);
+        if self.tx.try_send(event).is_err() {
+            // Throttle: log the first drop and then every 1000th, carrying
+            // the cumulative total — a per-event warn would itself become a
+            // log flood under the exact overload that triggers drops.
+            let total = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+            if total == 1 || total.is_multiple_of(1000) {
+                tracing::warn!(
+                    dropped_total = total,
+                    "auth event dropped: ClickHouse sink buffer full"
+                );
+            }
+        }
     }
 }

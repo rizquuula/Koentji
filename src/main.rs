@@ -61,12 +61,27 @@ async fn main() -> std::io::Result<()> {
     use koentji::infrastructure::telemetry::{AccessLog, RequestIdMiddleware};
 
     dotenvy::dotenv().ok();
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info,sqlx=warn,hyper=warn"),
-    )
-    .init();
+    // JSON structured logging. `.init()` also installs the `tracing-log`
+    // bridge (default feature), so every existing `log::` call site is
+    // captured into the same JSON sink — no per-call-site migration
+    // needed. `RUST_LOG` overrides the default filter.
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,sqlx=warn,hyper=warn"));
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(filter)
+        .init();
 
-    log::info!("Starting Koentji server...");
+    // Server-side panic hook. The default hook only prints to stderr and
+    // is replaced here so a panicked worker thread emits a structured
+    // `error` line into the same sink as everything else. `capture()`
+    // honours `RUST_BACKTRACE` — no cost unless an operator turns it on.
+    std::panic::set_hook(Box::new(|info| {
+        let backtrace = std::backtrace::Backtrace::capture();
+        tracing::error!(panic = %info, backtrace = %backtrace, "server thread panicked");
+    }));
+
+    tracing::info!("Starting Koentji server...");
 
     let pool = koentji::db::create_pool().await;
     koentji::db::run_migrations(&pool).await;

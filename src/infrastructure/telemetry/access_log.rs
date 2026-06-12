@@ -22,7 +22,6 @@ use actix_web::body::{BoxBody, MessageBody};
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::Error;
 use actix_web::HttpMessage;
-use serde::Serialize;
 
 use super::request_id::RequestId;
 
@@ -49,23 +48,6 @@ where
 
 pub struct AccessLogMiddleware<S> {
     service: S,
-}
-
-#[derive(Serialize)]
-struct AccessLogLine<'a> {
-    ts: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    request_id: Option<&'a str>,
-    remote: &'a str,
-    method: &'a str,
-    path: &'a str,
-    status: u16,
-    bytes: u64,
-    duration_ms: u128,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    referer: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    user_agent: Option<&'a str>,
 }
 
 impl<S, B> Service<ServiceRequest> for AccessLogMiddleware<S>
@@ -115,23 +97,25 @@ where
                 _ => 0,
             };
 
-            let line = AccessLogLine {
-                ts: chrono::Utc::now().to_rfc3339(),
-                request_id: request_id.as_deref(),
-                remote: &remote,
-                method: method.as_str(),
-                path: &path,
+            // Structured fields rather than a hand-built JSON string: the
+            // JSON subscriber renders these as top-level fields (and adds its
+            // own `timestamp`), so the access log stays first-class instead
+            // of nesting an escaped JSON blob inside `message`. Absent
+            // referer/user-agent collapse to "" (tracing fields can't be
+            // conditionally omitted the way `skip_serializing_if` did).
+            tracing::info!(
+                target: "http_access",
+                request_id = request_id.as_deref().unwrap_or("-"),
+                remote = remote.as_str(),
+                method = method.as_str(),
+                path = path.as_str(),
                 status,
                 bytes,
-                duration_ms: duration.as_millis(),
-                referer: referer.as_deref(),
-                user_agent: user_agent.as_deref(),
-            };
-
-            match serde_json::to_string(&line) {
-                Ok(json) => log::info!(target: "http_access", "{json}"),
-                Err(e) => log::warn!(target: "http_access", "access log serialise failed: {e}"),
-            }
+                duration_ms = duration.as_millis() as u64,
+                referer = referer.as_deref().unwrap_or(""),
+                user_agent = user_agent.as_deref().unwrap_or(""),
+                "http access"
+            );
 
             Ok(res.map_into_boxed_body())
         })
@@ -172,31 +156,5 @@ mod tests {
         let req = TestRequest::get().uri("/nope").to_request();
         let res = actix_web::test::call_service(&app, req).await;
         assert_eq!(res.status().as_u16(), 404);
-    }
-
-    #[test]
-    fn access_log_line_serialises_to_single_line_json() {
-        // Lock in the JSON shape so future refactors of the struct don't
-        // silently break downstream log parsers.
-        let line = AccessLogLine {
-            ts: "2026-04-17T12:00:00Z".to_string(),
-            request_id: Some("01932e45-7890-7abc-8def-0123456789ab"),
-            remote: "1.2.3.4",
-            method: "POST",
-            path: "/v1/auth",
-            status: 200,
-            bytes: 42,
-            duration_ms: 5,
-            referer: None,
-            user_agent: Some("curl/8.0"),
-        };
-        let json = serde_json::to_string(&line).unwrap();
-        assert!(json.starts_with('{'));
-        assert!(!json.contains('\n'));
-        // Only the `user_agent` + `request_id` optional fields should
-        // appear — `referer` is None and skip_serializing_if trims it.
-        assert!(json.contains("\"request_id\":\"01932e45-7890-7abc-8def-0123456789ab\""));
-        assert!(json.contains("\"user_agent\":\"curl/8.0\""));
-        assert!(!json.contains("\"referer\""));
     }
 }

@@ -98,11 +98,7 @@ impl AuthenticateApiKey {
 
         match self.repo.find(key, device).await {
             Err(e) => {
-                log::error!(
-                    "issued_key.find failed for device={}: {}",
-                    device.as_str(),
-                    e
-                );
+                tracing::error!(device = device.as_str(), error = %e, "issued_key.find failed");
                 ResolveOutcome::Backend
             }
             Ok(Some(snapshot)) => {
@@ -115,11 +111,7 @@ impl AuthenticateApiKey {
                 .await
             {
                 Err(e) => {
-                    log::error!(
-                        "claim_free_trial failed for device={}: {}",
-                        device.as_str(),
-                        e
-                    );
+                    tracing::error!(device = device.as_str(), error = %e, "claim_free_trial failed");
                     ResolveOutcome::Backend
                 }
                 Ok(Some(snapshot)) => {
@@ -141,7 +133,7 @@ impl AuthenticateApiKey {
     ) -> AuthOutcome {
         match self.repo.consume_quota(key, device, usage, now).await {
             Err(e) => {
-                log::error!("consume_quota failed for device={}: {}", device.as_str(), e);
+                tracing::error!(device = device.as_str(), error = %e, "consume_quota failed");
                 AuthOutcome::BackendError
             }
             Ok(ConsumeOutcome::RateLimitExceeded) => AuthOutcome::Denied {
