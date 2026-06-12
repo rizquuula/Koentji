@@ -39,6 +39,12 @@ pub fn KeyRow(
     };
 
     let handle_reveal = move |_| {
+        // Toggle: if already revealed, hide it (also drops the plaintext key
+        // from memory); otherwise fetch the full key from the server and show.
+        if revealed_key.get().is_some() {
+            revealed_key.set(None);
+            return;
+        }
         let key_id = key_id;
         leptos::task::spawn_local(async move {
             if let Ok(full_key) = crate::server::key_service::reveal_key(key_id).await {
