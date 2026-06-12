@@ -56,7 +56,7 @@ plotters = { version = "0.3", default-features = false, features = ["svg_backend
 wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
 http = "1"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "Navigator", "Clipboard", "NodeList", "Node"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlDocument", "Element", "HtmlElement", "HtmlTextAreaElement", "Navigator", "Clipboard", "NodeList", "Node"] }
 js-sys = "0.3"
 
 [features]

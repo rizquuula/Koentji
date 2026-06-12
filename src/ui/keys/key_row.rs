@@ -42,17 +42,8 @@ pub fn KeyRow(
     };
 
     let handle_copy = move |_| {
-        // navigator.clipboard.writeText(k) is fire-and-forget — the
-        // returned Promise is discarded. The previous implementation
-        // used `js_sys::eval` with string concatenation, which broke
-        // on any key containing a backtick, newline, or apostrophe and
-        // was a log-injection shaped XSS risk. Typed API means the
-        // key is passed as a JS string value, not source code, so no
-        // escaping is needed.
         if let Some(k) = revealed_key.get() {
-            if let Some(win) = web_sys::window() {
-                let _ = win.navigator().clipboard().write_text(&k);
-            }
+            copy_to_clipboard(&k);
         }
     };
 
@@ -173,4 +164,62 @@ pub fn KeyRow(
             </td>
         </tr>
     }
+}
+
+/// Copy `text` to the clipboard in both secure and insecure contexts.
+///
+/// `navigator.clipboard` only exists in a *secure context* (HTTPS or
+/// localhost). Served over plain HTTP from an IP it is `undefined`, and the
+/// non-nullable web-sys `.clipboard()` binding would call
+/// `undefined.writeText(...)` — the "can't access property writeText"
+/// TypeError. We feature-detect it first and, when it's missing, fall back to
+/// the legacy `execCommand('copy')` over a throwaway off-screen `<textarea>`,
+/// which is still the only copy path that works on plain HTTP. The text is
+/// passed as a JS string value (never as source), so no escaping is needed.
+fn copy_to_clipboard(text: &str) {
+    let Some(win) = web_sys::window() else {
+        return;
+    };
+    let navigator = win.navigator();
+
+    let nav_val: wasm_bindgen::JsValue = navigator.clone().into();
+    let has_clipboard =
+        js_sys::Reflect::get(&nav_val, &wasm_bindgen::JsValue::from_str("clipboard"))
+            .is_ok_and(|v| !v.is_undefined() && !v.is_null());
+
+    if has_clipboard {
+        // Secure context: fire-and-forget the returned Promise.
+        let _ = navigator.clipboard().write_text(text);
+    } else {
+        let _ = copy_via_textarea(&win, text);
+    }
+}
+
+/// Insecure-context clipboard fallback: select a hidden `<textarea>` and run
+/// the deprecated `execCommand('copy')`. The element is appended and removed
+/// within one synchronous handler, so it never paints or steals focus/scroll.
+fn copy_via_textarea(win: &web_sys::Window, text: &str) -> Option<()> {
+    use wasm_bindgen::JsCast;
+
+    let document = win.document()?;
+    // `execCommand` lives on HTMLDocument; the page is HTML so this casts.
+    let html_document = document.clone().dyn_into::<web_sys::HtmlDocument>().ok()?;
+
+    let textarea = document
+        .create_element("textarea")
+        .ok()?
+        .dyn_into::<web_sys::HtmlTextAreaElement>()
+        .ok()?;
+    textarea.set_value(text);
+    textarea
+        .set_attribute("style", "position:fixed;top:0;left:-9999px;opacity:0;")
+        .ok()?;
+    let _ = textarea.set_attribute("readonly", "");
+
+    let body = document.body()?;
+    body.append_child(&textarea).ok()?;
+    textarea.select();
+    let _ = html_document.exec_command("copy");
+    let _ = body.remove_child(&textarea);
+    Some(())
 }
