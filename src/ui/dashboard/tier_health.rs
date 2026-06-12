@@ -57,7 +57,11 @@ pub fn TierHealthPanel(#[prop(into)] insights: Signal<Option<DashboardInsights>>
                     </p>
                 }
             >
-                <DataTable headers=vec!["Tier", "Active Keys", "Quota", "Interval", "Status"]>
+                // "Live Keys" rather than "Active Keys": disambiguates from the
+                // windowed "Active Keys" stat card at the top of the page (same
+                // page-wide text would otherwise collide), and reads truer —
+                // this counts non-deleted, non-expired keys per tier.
+                <DataTable headers=vec!["Tier", "Live Keys", "Quota", "Interval", "Status"]>
                     <For
                         each=move || rows.get()
                         key=|r: &TierHealth| r.display_name.clone()

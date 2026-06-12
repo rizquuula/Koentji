@@ -70,7 +70,7 @@ test.describe('dashboard insights', () => {
     const panel = panelFor(page, 'Tier Health');
     await expectTableOrEmpty(
       panel,
-      ['Tier', 'Active Keys', 'Quota', 'Interval', 'Status'],
+      ['Tier', 'Live Keys', 'Quota', 'Interval', 'Status'],
       'No subscription tiers configured',
     );
   });
