@@ -1,4 +1,4 @@
-.PHONY: help dev run build fmt fmt-check clippy test test-rust test-e2e test-e2e-install check clean migrate db-create db-reset docker-up docker-up-local docker-down docker-up-db docker-logs docker-pull tailwind refactor-status refactor-next hash-admin-password
+.PHONY: help dev run build version fmt fmt-check clippy test test-rust test-e2e test-e2e-install check clean migrate db-create db-reset docker-up docker-up-local docker-down docker-up-db docker-logs docker-pull tailwind refactor-status refactor-next hash-admin-password
 
 -include .env
 export
@@ -29,6 +29,9 @@ run: ## Run server without watching for changes
 
 build: ## Build release binary
 	cargo leptos build --release
+
+version: ## Print the current package version (from Cargo.toml)
+	@grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2
 
 ## TailwindCSS
 tailwind: ## Build TailwindCSS (minified)
