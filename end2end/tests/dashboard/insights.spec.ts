@@ -60,7 +60,7 @@ test.describe('dashboard insights', () => {
     await expectTableOrEmpty(
       panel,
       ['Key', 'Owner', 'Expires', 'Days left'],
-      'No keys expiring in the next 30 days',
+      'No keys expiring in the next 90 days',
     );
   });
 

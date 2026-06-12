@@ -45,7 +45,7 @@ fn days_left_label(days_left: i64) -> String {
 }
 
 /// "Expiring Soon" early-warning panel: the soonest-lapsing active keys in
-/// the next 30 days. Independent of the date-range picker — it always shows
+/// the next 90 days. Independent of the date-range picker — it always shows
 /// the live picture. The heading is a real `<h2>` so e2e can target the panel
 /// by role.
 #[component]
@@ -59,7 +59,7 @@ pub fn ExpiringKeys(#[prop(into)] insights: Signal<Option<DashboardInsights>>) -
                 when=move || !rows.get().is_empty()
                 fallback=|| view! {
                     <p class="text-sm text-ink-muted py-4">
-                        "No keys expiring in the next 30 days"
+                        "No keys expiring in the next 90 days"
                     </p>
                 }
             >

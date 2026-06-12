@@ -1,10 +1,10 @@
 //! Integration coverage for the dashboard "Expiring Soon" early-warning
 //! widget. The pool-level `expiring_keys` query is exercised directly with a
-//! fixed `now`, so the 30-day window and ordering are pinned without leaning
+//! fixed `now`, so the 90-day window and ordering are pinned without leaning
 //! on the wall clock.
 //!
 //! Active keys (`deleted_at IS NULL`) whose `expired_at` falls in
-//! `(now, now + 30 days]` must surface, soonest first, capped at ten. Deleted
+//! `(now, now + 90 days]` must surface, soonest first, capped at ten. Deleted
 //! keys, already-expired keys, and keys lapsing beyond the window stay out.
 
 #![cfg(feature = "ssr")]
@@ -20,7 +20,7 @@ use koentji::server::stats_service::subscription_distribution;
 use serde_json::json;
 
 #[tokio::test]
-async fn expiring_keys_returns_only_the_next_30_days_soonest_first() {
+async fn expiring_keys_returns_only_the_next_90_days_soonest_first() {
     let pool = fresh_pool().await;
 
     // A fixed reference instant so the window boundaries are deterministic.
@@ -29,6 +29,7 @@ async fn expiring_keys_returns_only_the_next_30_days_soonest_first() {
     let in_3_days = now + Duration::days(3);
     let in_20_days = now + Duration::days(20);
     let in_60_days = now + Duration::days(60);
+    let in_120_days = now + Duration::days(120);
 
     // Surfaces: inside the window, active.
     common::a_key()
@@ -47,11 +48,19 @@ async fn expiring_keys_returns_only_the_next_30_days_soonest_first() {
         .insert(&pool)
         .await;
 
-    // Excluded: beyond the 30-day window.
+    // Surfaces: 60 days out is inside the 90-day window.
     common::a_key()
         .with_key("klab_exp_60d")
         .with_device("dev-60d")
         .expires_at(in_60_days)
+        .insert(&pool)
+        .await;
+
+    // Excluded: beyond the 90-day window.
+    common::a_key()
+        .with_key("klab_exp_120d")
+        .with_device("dev-120d")
+        .expires_at(in_120_days)
         .insert(&pool)
         .await;
 
@@ -79,13 +88,14 @@ async fn expiring_keys_returns_only_the_next_30_days_soonest_first() {
     let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
     assert_eq!(
         keys,
-        vec!["klab_exp_3d", "klab_exp_20d"],
+        vec!["klab_exp_3d", "klab_exp_20d", "klab_exp_60d"],
         "only in-window active keys, soonest first"
     );
 
-    // Days-left is the ceiling of the remaining duration: 3 and 20 here.
+    // Days-left is the ceiling of the remaining duration: 3, 20, 60 here.
     assert_eq!(rows[0].days_left, 3, "3-day key reports 3 days left");
     assert_eq!(rows[1].days_left, 20, "20-day key reports 20 days left");
+    assert_eq!(rows[2].days_left, 60, "60-day key reports 60 days left");
 
     // Owner fields ride through for the UI's Owner column.
     assert_eq!(rows[0].email.as_deref(), Some("soon@example.com"));
