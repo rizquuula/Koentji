@@ -6,6 +6,10 @@ pub async fn get_dashboard_stats(
     range: String,
     start_date: String,
     end_date: String,
+    // Viewer's UTC offset in minutes east (UTC+7 → 420). Only the daily-trend
+    // bucketing reads it, so the line chart's day boundaries land on the
+    // viewer's local midnight instead of UTC midnight. `0` means UTC.
+    tz_offset_minutes: i32,
 ) -> Result<DashboardStats, ServerFnError> {
     use leptos_actix::extract;
     use sqlx::PgPool;
@@ -92,15 +96,23 @@ pub async fn get_dashboard_stats(
     .await
     .map_err(|e| ServerFnError::new(e.to_string()))?;
 
+    // Bucket by the *viewer's* local day: shift `created_at` by their offset
+    // before truncating to a date, so a key created at 23:30 UTC for a UTC+7
+    // viewer counts on the following local day, matching what they see in the
+    // tables. `$3` is the offset in minutes east; `0` collapses to UTC-day
+    // bucketing (the prior behaviour) for SSR and UTC viewers.
     let daily_trend: Vec<(String, i64)> = sqlx::query_as(
-        r#"SELECT DATE(created_at)::text as day, COUNT(*) as count FROM authentication_keys
+        r#"SELECT (created_at + ($3 * INTERVAL '1 minute'))::date::text as day,
+                  COUNT(*) as count
+           FROM authentication_keys
            WHERE ($1::timestamptz IS NULL OR created_at >= $1)
              AND ($2::timestamptz IS NULL OR created_at <= $2)
-           GROUP BY DATE(created_at)
+           GROUP BY (created_at + ($3 * INTERVAL '1 minute'))::date
            ORDER BY day"#,
     )
     .bind(start)
     .bind(end)
+    .bind(tz_offset_minutes)
     .fetch_all(pool.get_ref())
     .await
     .map_err(|e| ServerFnError::new(e.to_string()))?;

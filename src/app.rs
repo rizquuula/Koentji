@@ -6,6 +6,7 @@ use crate::ui::keys::KeysPage;
 use crate::ui::marketing::{AboutPage, LandingPage, PrivacyPage, QuickstartPage, TermsPage};
 use crate::ui::rate_limits::LimitsIntervalPage;
 use crate::ui::subscriptions::SubscriptionsPage;
+use crate::ui::tz::provide_tz_offset;
 use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::{
@@ -17,6 +18,7 @@ use leptos_router::{
 pub fn App() -> impl IntoView {
     provide_meta_context();
     provide_toast_context();
+    provide_tz_offset();
 
     view! {
         // The hashed stylesheet <link> is emitted from the server shell

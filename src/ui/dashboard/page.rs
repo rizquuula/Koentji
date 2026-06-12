@@ -8,6 +8,7 @@ use crate::ui::dashboard::key_hygiene::KeyHygiene;
 use crate::ui::dashboard::stats_cards::StatsCards;
 use crate::ui::dashboard::tier_health::TierHealthPanel;
 use crate::ui::shell::layout::Layout;
+use crate::ui::tz::use_tz_offset;
 use leptos::prelude::*;
 
 #[component]
@@ -15,10 +16,14 @@ pub fn DashboardPage() -> impl IntoView {
     let range = RwSignal::new("all".to_string());
     let start_date = RwSignal::new(String::new());
     let end_date = RwSignal::new(String::new());
+    // Viewer's local offset (minutes east of UTC). Seeded 0 on the server, so
+    // the SSR load buckets the daily trend by UTC day; once the browser offset
+    // lands it re-fetches and the trend re-buckets to local days.
+    let tz = use_tz_offset();
 
     let stats_resource = Resource::new(
-        move || (range.get(), start_date.get(), end_date.get()),
-        move |(r, s, e)| get_dashboard_stats(r, s, e),
+        move || (range.get(), start_date.get(), end_date.get(), tz.get()),
+        move |(r, s, e, tz)| get_dashboard_stats(r, s, e, tz),
     );
 
     let stats_signal = Signal::derive(move || stats_resource.get().and_then(|r| r.ok()));

@@ -24,7 +24,27 @@ function renderAnalyticsCharts(dataJson) {
     }, 0);
 }
 
+// Format the raw unix-ms bucket timestamps into axis labels in the *browser's*
+// local timezone. `new Date(ms)` and the `toLocale*` formatters both resolve to
+// the viewer's zone, so the axis follows whoever is looking at it. 24h windows
+// show a bare "HH:MM"; wider windows prefix the day so a label isn't ambiguous
+// across midnight. The traffic and latency charts share one label array (same
+// bucket grid), so this is computed once per render.
+function formatTrafficLabels(tsList, rangeIs24h) {
+    if (!Array.isArray(tsList)) return [];
+    const timeOpts = { hour: '2-digit', minute: '2-digit', hour12: false };
+    const dayOpts = { day: '2-digit', month: 'short' };
+    return tsList.map(function(ms) {
+        const d = new Date(ms);
+        const time = d.toLocaleTimeString([], timeOpts);
+        if (rangeIs24h) return time;
+        return d.toLocaleDateString([], dayOpts) + ' ' + time;
+    });
+}
+
 function renderAnalyticsChartsImpl(data) {
+    const trafficLabels = formatTrafficLabels(data.trafficTs, data.rangeIs24h);
+
     // Traffic: allowed + denied stacked as an area chart. The stack top
     // (allowed + denied) is the total request volume per bucket.
     const trafficCtx = document.getElementById('traffic-chart');
@@ -33,7 +53,7 @@ function renderAnalyticsChartsImpl(data) {
         trafficChart = new Chart(trafficCtx, {
             type: 'line',
             data: {
-                labels: data.trafficLabels,
+                labels: trafficLabels,
                 datasets: [
                     {
                         label: 'Allowed',
@@ -77,7 +97,7 @@ function renderAnalyticsChartsImpl(data) {
         latencyChart = new Chart(latencyCtx, {
             type: 'line',
             data: {
-                labels: data.trafficLabels,
+                labels: trafficLabels,
                 datasets: [
                     {
                         label: 'p50',

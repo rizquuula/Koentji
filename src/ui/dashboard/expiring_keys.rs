@@ -1,5 +1,6 @@
 use crate::models::{DashboardInsights, ExpiringKey};
 use crate::ui::design::{Badge, BadgeTone, DataTable, Surface};
+use crate::ui::tz::{to_local, use_tz_offset};
 use leptos::prelude::*;
 
 /// Truncate a long API key for display: first 8 chars + "…" + last 4. Short
@@ -51,6 +52,8 @@ fn days_left_label(days_left: i64) -> String {
 #[component]
 pub fn ExpiringKeys(#[prop(into)] insights: Signal<Option<DashboardInsights>>) -> impl IntoView {
     let rows = Signal::derive(move || insights.get().map(|i| i.expiring_keys).unwrap_or_default());
+    // Local-timezone offset for the "Expires" date, read reactively.
+    let tz = use_tz_offset();
 
     view! {
         <Surface padded=true>
@@ -73,7 +76,9 @@ pub fn ExpiringKeys(#[prop(into)] insights: Signal<Option<DashboardInsights>>) -
                             let full_key = row.key.clone();
                             let truncated = truncate_key(&row.key);
                             let owner = owner_label(&row);
-                            let expires = row.expired_at.format("%d %b %Y").to_string();
+                            let expired_at = row.expired_at;
+                            let expires =
+                                move || to_local(expired_at, tz.get()).format("%d %b %Y").to_string();
                             let tone = days_left_tone(row.days_left);
                             let label = days_left_label(row.days_left);
                             view! {

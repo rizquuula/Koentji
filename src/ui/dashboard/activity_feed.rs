@@ -1,5 +1,6 @@
 use crate::models::{AuditEntry, DashboardInsights};
 use crate::ui::design::{Badge, BadgeTone, Surface};
+use crate::ui::tz::{to_local, use_tz_offset};
 use leptos::prelude::*;
 
 /// Badge tone per event type: a green Success for issuance, red Danger for
@@ -49,6 +50,8 @@ pub fn ActivityFeed(#[prop(into)] insights: Signal<Option<DashboardInsights>>) -
             .map(|i| i.recent_activity)
             .unwrap_or_default()
     });
+    // Local-timezone offset for the exact-time tooltip, read reactively.
+    let tz = use_tz_offset();
 
     view! {
         <Surface padded=true>
@@ -74,7 +77,12 @@ pub fn ActivityFeed(#[prop(into)] insights: Signal<Option<DashboardInsights>>) -
                             let summary = entry.summary.clone();
                             let seconds_ago = (chrono::Utc::now() - entry.occurred_at).num_seconds();
                             let when = relative_time(seconds_ago);
-                            let title = entry.occurred_at.format("%d %b %Y %H:%M").to_string();
+                            let occurred_at = entry.occurred_at;
+                            let title = move || {
+                                to_local(occurred_at, tz.get())
+                                    .format("%d %b %Y %H:%M")
+                                    .to_string()
+                            };
                             view! {
                                 <li class="flex items-start gap-3">
                                     <Badge tone=tone>{label}</Badge>

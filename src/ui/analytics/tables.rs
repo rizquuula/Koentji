@@ -1,4 +1,5 @@
 use crate::server::analytics_service::{KeyTrafficRow, QuotaPressureRow};
+use crate::ui::tz::{to_local, use_tz_offset};
 use leptos::prelude::*;
 
 /// Deny rate as a percentage of total requests, rounded to one decimal.
@@ -57,17 +58,23 @@ fn trim_decimals(value: f64) -> String {
     trimmed.to_string()
 }
 
-/// Render a unix-seconds timestamp as "DD MMM HH:MM" UTC — same shape as the
-/// charts' wider-window labels, so the page reads consistently.
-fn format_last_seen(unix_secs: i64) -> String {
+/// Render a unix-seconds timestamp as "DD MMM HH:MM" in the viewer's local
+/// timezone (`offset_minutes` east of UTC) — same shape as the charts'
+/// wider-window labels, so the page reads consistently.
+fn format_last_seen(unix_secs: i64, offset_minutes: i32) -> String {
     use chrono::{DateTime, Utc};
     let dt: DateTime<Utc> = DateTime::from_timestamp(unix_secs, 0).unwrap_or_default();
-    dt.format("%d %b %H:%M").to_string()
+    to_local(dt, offset_minutes)
+        .format("%d %b %H:%M")
+        .to_string()
 }
 
 #[component]
 pub fn BusiestKeysTable(rows: Vec<KeyTrafficRow>) -> impl IntoView {
     let is_empty = rows.is_empty();
+    // Local-timezone offset, read reactively so each row's "Last seen" re-renders
+    // from UTC to the viewer's zone once the browser offset lands post-hydration.
+    let tz = use_tz_offset();
     view! {
         <div class="bg-white rounded-lg shadow overflow-hidden">
             <div class="px-6 py-4 border-b">
@@ -93,7 +100,7 @@ pub fn BusiestKeysTable(rows: Vec<KeyTrafficRow>) -> impl IntoView {
                                 let full_key = row.auth_key.clone();
                                 let truncated = truncate_key(&row.auth_key);
                                 let deny = deny_rate_pct(row.requests, row.denied);
-                                let last_seen = format_last_seen(row.last_seen_unix);
+                                let last_seen_unix = row.last_seen_unix;
                                 view! {
                                     <tr class="border-b last:border-0">
                                         <td class="px-4 py-3 text-sm font-mono text-gray-900" title=full_key>
@@ -106,7 +113,7 @@ pub fn BusiestKeysTable(rows: Vec<KeyTrafficRow>) -> impl IntoView {
                                             {format!("{deny:.1}%")}
                                         </td>
                                         <td class="px-4 py-3 text-sm text-gray-500">
-                                            {last_seen}
+                                            {move || format_last_seen(last_seen_unix, tz.get())}
                                         </td>
                                     </tr>
                                 }

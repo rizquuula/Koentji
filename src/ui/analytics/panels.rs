@@ -13,15 +13,13 @@ extern "C" {
 }
 
 /// Serialize the snapshot into the wire payload the JS bridge expects and
-/// hand it across. Labels are formatted here (Rust stays the brains, JS
-/// stays dumb) — "HH:MM" UTC for the 24h window, "DD MMM HH:MM" for wider
-/// windows where a bare time would be ambiguous across days.
+/// hand it across. The x-axis carries raw unix-ms bucket timestamps plus a
+/// `rangeIs24h` flag; the JS side formats them in the *browser's* timezone
+/// ("HH:MM" for the 24h window, "DD Mon HH:MM" for wider windows where a bare
+/// time would be ambiguous across days). Formatting can't live in Rust here:
+/// this runs in wasm, where `chrono` has no access to the viewer's local zone.
 pub fn render_analytics_charts(snapshot: &AnalyticsSnapshot, range_is_24h: bool) {
-    let labels: Vec<String> = snapshot
-        .traffic
-        .iter()
-        .map(|b| format_label(b.ts_unix_ms, range_is_24h))
-        .collect();
+    let traffic_ts: Vec<i64> = snapshot.traffic.iter().map(|b| b.ts_unix_ms).collect();
     let allowed: Vec<u64> = snapshot.traffic.iter().map(|b| b.allowed).collect();
     let denied: Vec<u64> = snapshot.traffic.iter().map(|b| b.denied).collect();
 
@@ -48,7 +46,8 @@ pub fn render_analytics_charts(snapshot: &AnalyticsSnapshot, range_is_24h: bool)
         .collect();
 
     let data = serde_json::json!({
-        "trafficLabels": labels,
+        "trafficTs": traffic_ts,
+        "rangeIs24h": range_is_24h,
         "trafficAllowed": allowed,
         "trafficDenied": denied,
         "latencyP50": latency_p50,
@@ -75,16 +74,6 @@ fn denial_reason_color(reason: &str) -> &'static str {
         "UnknownKey" => "#6B7280",
         "BackendError" => "#0EA5E9",
         _ => "#9CA3AF",
-    }
-}
-
-fn format_label(ts_unix_ms: i64, range_is_24h: bool) -> String {
-    use chrono::{DateTime, Utc};
-    let dt: DateTime<Utc> = DateTime::from_timestamp_millis(ts_unix_ms).unwrap_or_default();
-    if range_is_24h {
-        dt.format("%H:%M").to_string()
-    } else {
-        dt.format("%d %b %H:%M").to_string()
     }
 }
 
