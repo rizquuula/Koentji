@@ -69,6 +69,52 @@ fn format_last_seen(unix_secs: i64, offset_minutes: i32) -> String {
         .to_string()
 }
 
+/// Heroicons "eye-off" outline path data. The reveal button swaps to this
+/// while the full key is shown; the default eye is the two-path icon inlined
+/// below (same family as the keys page).
+const EYE_OFF_ICON_PATH: &str = "M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21";
+
+/// A monospace API-key cell: the truncated key plus an eye button that
+/// reveals/hides the full value. The full key already rides in the analytics
+/// rows on the client, so reveal is a local visual toggle — no server fetch,
+/// mirroring the device-id reveal on the keys page. The full key stays in the
+/// wrapper's `title` so hover surfaces it in either state.
+#[component]
+fn RevealableKey(full: String) -> impl IntoView {
+    let truncated = truncate_key(&full);
+    let shown = RwSignal::new(false);
+    let full_text = full.clone();
+    view! {
+        <div class="flex items-center space-x-2" title=full.clone()>
+            <span>
+                {move || if shown.get() { full_text.clone() } else { truncated.clone() }}
+            </span>
+            <button
+                type="button"
+                class="text-blue-500 hover:text-blue-700 text-xs shrink-0"
+                on:click=move |_| shown.update(|s| *s = !*s)
+                title=move || if shown.get() { "Hide key" } else { "Reveal key" }
+                aria-label=move || if shown.get() { "Hide full key" } else { "Reveal full key" }
+            >
+                {move || if shown.get() {
+                    view! {
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d=EYE_OFF_ICON_PATH/>
+                        </svg>
+                    }.into_any()
+                } else {
+                    view! {
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                        </svg>
+                    }.into_any()
+                }}
+            </button>
+        </div>
+    }
+}
+
 #[component]
 pub fn BusiestKeysTable(rows: Vec<KeyTrafficRow>) -> impl IntoView {
     let is_empty = rows.is_empty();
@@ -98,13 +144,12 @@ pub fn BusiestKeysTable(rows: Vec<KeyTrafficRow>) -> impl IntoView {
                         >
                             {
                                 let full_key = row.auth_key.clone();
-                                let truncated = truncate_key(&row.auth_key);
                                 let deny = deny_rate_pct(row.requests, row.denied);
                                 let last_seen_unix = row.last_seen_unix;
                                 view! {
                                     <tr class="border-b last:border-0">
-                                        <td class="px-4 py-3 text-sm font-mono text-gray-900" title=full_key>
-                                            {truncated}
+                                        <td class="px-4 py-3 text-sm font-mono text-gray-900">
+                                            <RevealableKey full=full_key/>
                                         </td>
                                         <td class="px-4 py-3 text-sm text-right text-gray-700">
                                             {row.requests.to_string()}
@@ -159,7 +204,6 @@ pub fn QuotaPressureTable(rows: Vec<QuotaPressureRow>) -> impl IntoView {
                         >
                             {
                                 let full_key = row.auth_key.clone();
-                                let truncated = truncate_key(&row.auth_key);
                                 let remaining = trim_decimals(row.remaining);
                                 // Deleted-from-Postgres keys show "—" and no bar.
                                 let limit_label = row
@@ -169,8 +213,8 @@ pub fn QuotaPressureTable(rows: Vec<QuotaPressureRow>) -> impl IntoView {
                                 let pct = percent_remaining(row.remaining, row.limit);
                                 view! {
                                     <tr class="border-b last:border-0">
-                                        <td class="px-4 py-3 text-sm font-mono text-gray-900" title=full_key>
-                                            {truncated}
+                                        <td class="px-4 py-3 text-sm font-mono text-gray-900">
+                                            <RevealableKey full=full_key/>
                                         </td>
                                         <td class="px-4 py-3 text-sm text-right text-gray-700">
                                             {remaining}
