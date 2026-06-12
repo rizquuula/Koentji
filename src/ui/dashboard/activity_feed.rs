@@ -76,9 +76,15 @@ pub fn ActivityFeed(#[prop(into)] insights: Signal<Option<DashboardInsights>>) -
                             let when = relative_time(seconds_ago);
                             let title = entry.occurred_at.format("%d %b %Y %H:%M").to_string();
                             view! {
-                                <li class="flex items-center gap-3">
+                                <li class="flex items-start gap-3">
                                     <Badge tone=tone>{label}</Badge>
-                                    <span class="flex-1 text-sm text-ink-subdued">
+                                    // `min-w-0` lets this flex child shrink below
+                                    // its content's intrinsic width, and
+                                    // `break-words` breaks an over-long unbroken
+                                    // token (e.g. a 64-char device hash) onto the
+                                    // next line instead of spilling past the
+                                    // column into the timestamp.
+                                    <span class="flex-1 min-w-0 break-words text-sm text-ink-subdued">
                                         {summary}
                                     </span>
                                     <span class="text-xs text-ink-muted whitespace-nowrap" title=title>
