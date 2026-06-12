@@ -2,5 +2,6 @@
 
 pub mod page;
 pub mod panels;
+pub mod tables;
 
 pub use page::AnalyticsPage;

@@ -58,6 +58,16 @@ pub struct DenialReasonCount {
     pub count: u64,
 }
 
+/// One row of the busiest-keys table: a key's request volume, denials, and
+/// the unix-seconds timestamp of its most recent event in the window.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KeyTrafficRow {
+    pub auth_key: String,
+    pub requests: u64,
+    pub denied: u64,
+    pub last_seen_unix: i64,
+}
+
 /// Microseconds → milliseconds for display. Pure (TDD'd) so the conversion
 /// lives in one tested place rather than scattered across the wire layer.
 pub fn micros_to_millis(micros: f64) -> f64 {
@@ -71,6 +81,7 @@ pub struct AnalyticsSnapshot {
     pub traffic: Vec<TrafficBucket>,
     pub latency: Vec<LatencyBucket>,
     pub denial_reasons: Vec<DenialReasonCount>,
+    pub busiest_keys: Vec<KeyTrafficRow>,
 }
 
 /// Fill `bucket_seconds`-aligned gaps so sparse traffic doesn't render a
@@ -188,6 +199,15 @@ struct DenialReasonRow {
     count: u64,
 }
 
+#[cfg(feature = "ssr")]
+#[derive(clickhouse::Row, serde::Deserialize)]
+struct BusiestKeyRow {
+    auth_key: String,
+    requests: u64,
+    denied: u64,
+    last_seen_unix: i64,
+}
+
 #[server(GetAnalyticsSnapshot, "/api")]
 pub async fn get_analytics_snapshot(
     range: AnalyticsRange,
@@ -250,8 +270,23 @@ pub async fn get_analytics_snapshot(
         .bind(range_secs)
         .fetch_all::<DenialReasonRow>();
 
-    let (traffic_rows, latency_rows, denial_rows) =
-        tokio::try_join!(traffic_fut, latency_fut, denial_fut)
+    let busiest_fut = client
+        .query(
+            "SELECT auth_key,
+                    count() AS requests,
+                    countIf(decision = 'denied') AS denied,
+                    max(toInt64(toUnixTimestamp(ts))) AS last_seen_unix
+             FROM auth_events
+             WHERE ts >= now() - INTERVAL ? second
+             GROUP BY auth_key
+             ORDER BY requests DESC
+             LIMIT 10",
+        )
+        .bind(range_secs)
+        .fetch_all::<BusiestKeyRow>();
+
+    let (traffic_rows, latency_rows, denial_rows, busiest_rows) =
+        tokio::try_join!(traffic_fut, latency_fut, denial_fut, busiest_fut)
             .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     let queried_traffic: Vec<TrafficBucket> = traffic_rows
@@ -281,6 +316,16 @@ pub async fn get_analytics_snapshot(
         })
         .collect();
 
+    let busiest_keys: Vec<KeyTrafficRow> = busiest_rows
+        .into_iter()
+        .map(|r| KeyTrafficRow {
+            auth_key: r.auth_key,
+            requests: r.requests,
+            denied: r.denied,
+            last_seen_unix: r.last_seen_unix,
+        })
+        .collect();
+
     let now_unix_ms = chrono::Utc::now().timestamp_millis();
     let traffic = fill_missing_buckets(&queried_traffic, now_unix_ms, range);
     let latency = fill_missing_latency_buckets(&queried_latency, now_unix_ms, range);
@@ -289,6 +334,7 @@ pub async fn get_analytics_snapshot(
         traffic,
         latency,
         denial_reasons,
+        busiest_keys,
     })
 }
 
