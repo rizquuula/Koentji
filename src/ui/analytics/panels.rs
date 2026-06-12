@@ -25,10 +25,20 @@ pub fn render_analytics_charts(snapshot: &AnalyticsSnapshot, range_is_24h: bool)
     let allowed: Vec<u64> = snapshot.traffic.iter().map(|b| b.allowed).collect();
     let denied: Vec<u64> = snapshot.traffic.iter().map(|b| b.denied).collect();
 
+    // Latency lines reuse the traffic x-axis labels (same bucket grid). Gaps
+    // travel as JSON `null`; the JS renderer sets `spanGaps: false` so the
+    // line breaks rather than interpolating across windows with no traffic.
+    let latency_p50: Vec<Option<f64>> = snapshot.latency.iter().map(|b| b.p50_ms).collect();
+    let latency_p95: Vec<Option<f64>> = snapshot.latency.iter().map(|b| b.p95_ms).collect();
+    let latency_p99: Vec<Option<f64>> = snapshot.latency.iter().map(|b| b.p99_ms).collect();
+
     let data = serde_json::json!({
         "trafficLabels": labels,
         "trafficAllowed": allowed,
         "trafficDenied": denied,
+        "latencyP50": latency_p50,
+        "latencyP95": latency_p95,
+        "latencyP99": latency_p99,
     });
 
     if let Ok(json_str) = serde_json::to_string(&data) {
@@ -53,6 +63,18 @@ pub fn TrafficPanel() -> impl IntoView {
             <h3 class="text-sm font-medium text-gray-500 mb-4">"Traffic"</h3>
             <div class="relative" style="height: 300px">
                 <canvas id="traffic-chart"></canvas>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn LatencyPanel() -> impl IntoView {
+    view! {
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="text-sm font-medium text-gray-500 mb-4">"Latency (ms)"</h3>
+            <div class="relative" style="height: 300px">
+                <canvas id="latency-chart"></canvas>
             </div>
         </div>
     }

@@ -1,5 +1,5 @@
 use crate::server::analytics_service::{get_analytics_snapshot, AnalyticsRange};
-use crate::ui::analytics::panels::{render_analytics_charts, TrafficPanel};
+use crate::ui::analytics::panels::{render_analytics_charts, LatencyPanel, TrafficPanel};
 use crate::ui::shell::layout::Layout;
 use leptos::prelude::*;
 
@@ -63,6 +63,9 @@ pub fn AnalyticsPage() -> impl IntoView {
                                         <span class="inline-block w-3 h-3 rounded-sm bg-red-600 mr-2"></span>
                                         {format!("Denied: {denied}")}
                                     </span>
+                                </div>
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <LatencyPanel/>
                                 </div>
                             }.into_any()
                         }

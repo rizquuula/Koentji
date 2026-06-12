@@ -8,6 +8,7 @@
 // instance before re-creating so range switches don't leak canvases.
 
 let trafficChart = null;
+let latencyChart = null;
 
 function renderAnalyticsCharts(dataJson) {
     setTimeout(function() {
@@ -61,6 +62,62 @@ function renderAnalyticsChartsImpl(data) {
                 },
                 scales: {
                     y: { stacked: true, beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    // Latency: p50/p95/p99 as three lines sharing the traffic x-axis. Empty
+    // buckets arrive as `null`; `spanGaps: false` breaks the line there
+    // rather than interpolating a phantom latency across idle windows.
+    const latencyCtx = document.getElementById('latency-chart');
+    if (latencyCtx) {
+        if (latencyChart) latencyChart.destroy();
+        latencyChart = new Chart(latencyCtx, {
+            type: 'line',
+            data: {
+                labels: data.trafficLabels,
+                datasets: [
+                    {
+                        label: 'p50',
+                        data: data.latencyP50,
+                        borderColor: '#3B82F6',
+                        backgroundColor: '#3B82F6',
+                        fill: false,
+                        tension: 0.3,
+                        pointRadius: 0,
+                        spanGaps: false,
+                    },
+                    {
+                        label: 'p95',
+                        data: data.latencyP95,
+                        borderColor: '#F59E0B',
+                        backgroundColor: '#F59E0B',
+                        fill: false,
+                        tension: 0.3,
+                        pointRadius: 0,
+                        spanGaps: false,
+                    },
+                    {
+                        label: 'p99',
+                        data: data.latencyP99,
+                        borderColor: '#DC2626',
+                        backgroundColor: '#DC2626',
+                        fill: false,
+                        tension: 0.3,
+                        pointRadius: 0,
+                        spanGaps: false,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10 } }
+                },
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: 'ms' } }
                 }
             }
         });

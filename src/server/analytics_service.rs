@@ -37,11 +37,30 @@ pub struct TrafficBucket {
     pub denied: u64,
 }
 
+/// One time bucket of latency percentiles in milliseconds, aligned to the
+/// same bucket boundaries as `TrafficBucket`. Each percentile is `Option`
+/// because a bucket with no events is a *gap*, not zero latency — a
+/// zero-filled latency line would lie. The chart spans these gaps as breaks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LatencyBucket {
+    pub ts_unix_ms: i64,
+    pub p50_ms: Option<f64>,
+    pub p95_ms: Option<f64>,
+    pub p99_ms: Option<f64>,
+}
+
+/// Microseconds → milliseconds for display. Pure (TDD'd) so the conversion
+/// lives in one tested place rather than scattered across the wire layer.
+pub fn micros_to_millis(micros: f64) -> f64 {
+    micros / 1000.0
+}
+
 /// Data-only analytics payload. The UI renders it client-side via Chart.js;
 /// no server-rendered SVG. Grows in later milestones (more panels).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyticsSnapshot {
     pub traffic: Vec<TrafficBucket>,
+    pub latency: Vec<LatencyBucket>,
 }
 
 /// Fill `bucket_seconds`-aligned gaps so sparse traffic doesn't render a
@@ -83,6 +102,43 @@ pub fn fill_missing_buckets(
     out
 }
 
+/// Densify latency percentiles to the same `bucket_seconds`-aligned grid as
+/// traffic, but missing buckets stay `None` rather than zero: a gap in the
+/// latency line is honest about "no traffic", whereas a 0ms point would
+/// imply impossibly fast requests. `queried` holds only buckets with events.
+///
+/// Pure: no ClickHouse, no async — unit-tested under plain `cargo test`.
+pub fn fill_missing_latency_buckets(
+    queried: &[LatencyBucket],
+    now_unix_ms: i64,
+    range: AnalyticsRange,
+) -> Vec<LatencyBucket> {
+    let bucket_ms = range.bucket_seconds() as i64 * 1000;
+    let range_ms = range.range_seconds() as i64 * 1000;
+
+    let last_bucket = (now_unix_ms / bucket_ms) * bucket_ms;
+    let first_bucket = ((now_unix_ms - range_ms) / bucket_ms) * bucket_ms;
+
+    let mut lookup = std::collections::HashMap::new();
+    for b in queried {
+        lookup.insert(b.ts_unix_ms, (b.p50_ms, b.p95_ms, b.p99_ms));
+    }
+
+    let mut out = Vec::new();
+    let mut ts = first_bucket;
+    while ts <= last_bucket {
+        let (p50_ms, p95_ms, p99_ms) = lookup.get(&ts).copied().unwrap_or((None, None, None));
+        out.push(LatencyBucket {
+            ts_unix_ms: ts,
+            p50_ms,
+            p95_ms,
+            p99_ms,
+        });
+        ts += bucket_ms;
+    }
+    out
+}
+
 #[cfg(feature = "ssr")]
 async fn require_admin() -> Result<(), ServerFnError> {
     use actix_session::Session;
@@ -106,6 +162,15 @@ struct TrafficRow {
     denied: u64,
 }
 
+#[cfg(feature = "ssr")]
+#[derive(clickhouse::Row, serde::Deserialize)]
+struct LatencyRow {
+    ts_unix_ms: i64,
+    p50_us: f64,
+    p95_us: f64,
+    p99_us: f64,
+}
+
 #[server(GetAnalyticsSnapshot, "/api")]
 pub async fn get_analytics_snapshot(
     range: AnalyticsRange,
@@ -119,7 +184,10 @@ pub async fn get_analytics_snapshot(
     let bucket_secs = range.bucket_seconds();
     let range_secs = range.range_seconds();
 
-    let rows: Vec<TrafficRow> = client
+    // Fan the per-panel ClickHouse queries out concurrently rather than
+    // awaiting them one after another — they're independent reads against the
+    // same window, so serializing them just adds round-trip latency.
+    let traffic_fut = client
         .query(
             // `toStartOfInterval(DateTime64, INTERVAL n second)` returns a
             // plain `DateTime` in ClickHouse 24.x, which `toUnixTimestamp64Milli`
@@ -135,11 +203,29 @@ pub async fn get_analytics_snapshot(
         )
         .bind(bucket_secs)
         .bind(range_secs)
-        .fetch_all::<TrafficRow>()
-        .await
+        .fetch_all::<TrafficRow>();
+
+    let latency_fut = client
+        .query(
+            // Same `toStartOfInterval` epoch-ms quirk as traffic above. Empty
+            // buckets simply don't appear here — they become gaps client-side.
+            "SELECT toInt64(toUnixTimestamp(toStartOfInterval(ts, INTERVAL ? second))) * 1000 AS ts_unix_ms,
+                    quantile(0.5)(latency_us) AS p50_us,
+                    quantile(0.95)(latency_us) AS p95_us,
+                    quantile(0.99)(latency_us) AS p99_us
+             FROM auth_events
+             WHERE ts >= now() - INTERVAL ? second
+             GROUP BY ts_unix_ms
+             ORDER BY ts_unix_ms",
+        )
+        .bind(bucket_secs)
+        .bind(range_secs)
+        .fetch_all::<LatencyRow>();
+
+    let (traffic_rows, latency_rows) = tokio::try_join!(traffic_fut, latency_fut)
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    let queried: Vec<TrafficBucket> = rows
+    let queried_traffic: Vec<TrafficBucket> = traffic_rows
         .into_iter()
         .map(|r| TrafficBucket {
             ts_unix_ms: r.ts_unix_ms,
@@ -148,10 +234,21 @@ pub async fn get_analytics_snapshot(
         })
         .collect();
 
-    let now_unix_ms = chrono::Utc::now().timestamp_millis();
-    let traffic = fill_missing_buckets(&queried, now_unix_ms, range);
+    let queried_latency: Vec<LatencyBucket> = latency_rows
+        .into_iter()
+        .map(|r| LatencyBucket {
+            ts_unix_ms: r.ts_unix_ms,
+            p50_ms: Some(micros_to_millis(r.p50_us)),
+            p95_ms: Some(micros_to_millis(r.p95_us)),
+            p99_ms: Some(micros_to_millis(r.p99_us)),
+        })
+        .collect();
 
-    Ok(AnalyticsSnapshot { traffic })
+    let now_unix_ms = chrono::Utc::now().timestamp_millis();
+    let traffic = fill_missing_buckets(&queried_traffic, now_unix_ms, range);
+    let latency = fill_missing_latency_buckets(&queried_latency, now_unix_ms, range);
+
+    Ok(AnalyticsSnapshot { traffic, latency })
 }
 
 #[cfg(test)]
@@ -266,6 +363,53 @@ mod tests {
             (out.last().unwrap().allowed, out.last().unwrap().denied),
             (0, 0)
         );
+    }
+
+    #[test]
+    fn micros_to_millis_scales_by_1000() {
+        assert_eq!(micros_to_millis(1000.0), 1.0);
+        assert_eq!(micros_to_millis(0.0), 0.0);
+        assert_eq!(micros_to_millis(2500.0), 2.5);
+        // Sub-millisecond latencies keep their fractional part.
+        assert_eq!(micros_to_millis(500.0), 0.5);
+    }
+
+    #[test]
+    fn fill_latency_empty_input_is_all_gaps_not_zeros() {
+        let now = ALIGNED_NOW;
+        let out = fill_missing_latency_buckets(&[], now, AnalyticsRange::Last24h);
+
+        assert_eq!(out.len(), 1441);
+        // Every slot is a gap (None), never a misleading 0ms point.
+        assert!(out
+            .iter()
+            .all(|b| b.p50_ms.is_none() && b.p95_ms.is_none() && b.p99_ms.is_none()));
+        assert_eq!(out.last().unwrap().ts_unix_ms, now);
+    }
+
+    #[test]
+    fn fill_latency_preserves_values_and_gaps_them_in_between() {
+        let now = ALIGNED_NOW;
+        let a = now - 2 * BUCKET_MS_24H;
+        let queried = vec![LatencyBucket {
+            ts_unix_ms: a,
+            p50_ms: Some(1.5),
+            p95_ms: Some(4.0),
+            p99_ms: Some(9.0),
+        }];
+        let out = fill_missing_latency_buckets(&queried, now, AnalyticsRange::Last24h);
+
+        let real = out.iter().find(|x| x.ts_unix_ms == a).unwrap();
+        assert_eq!(real.p50_ms, Some(1.5));
+        assert_eq!(real.p95_ms, Some(4.0));
+        assert_eq!(real.p99_ms, Some(9.0));
+
+        // The neighbouring slot with no events stays a gap.
+        let gap = out
+            .iter()
+            .find(|x| x.ts_unix_ms == now - BUCKET_MS_24H)
+            .unwrap();
+        assert!(gap.p50_ms.is_none() && gap.p95_ms.is_none() && gap.p99_ms.is_none());
     }
 
     #[test]
