@@ -46,7 +46,7 @@ async fn main() -> std::io::Result<()> {
     use leptos::config::get_configuration;
     use leptos::prelude::*;
     use leptos_actix::{generate_route_list, LeptosRoutes};
-    use leptos_meta::MetaTags;
+    use leptos_meta::{HashedStylesheet, MetaTags};
     use utoipa_swagger_ui::SwaggerUi;
 
     use koentji::application::{
@@ -251,6 +251,10 @@ async fn main() -> std::io::Result<()> {
                                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                                 <AutoReload options=leptos_options.clone() />
                                 <HydrationScripts options=leptos_options.clone()/>
+                                // Emits <link rel="stylesheet" href="/pkg/koentji.<hash>.css">
+                                // by reading hash.txt next to the binary. Replaces the
+                                // former hard-coded <Stylesheet> in app.rs.
+                                <HashedStylesheet options=leptos_options.clone() id="leptos"/>
                                 <MetaTags/>
                             </head>
                             <body class="bg-gray-50 min-h-screen">

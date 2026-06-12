@@ -102,6 +102,15 @@ panic = "abort"
 [package.metadata.leptos]
 bin-target = "koentji"
 output-name = "koentji"
+# Content-hash the js/wasm/css filenames (koentji.<hash>.*) so each release
+# ships new URLs and returning visitors can't run a stale cached bundle (the
+# cache trap that resurfaces hydration panics). Requires, at runtime:
+#   * LEPTOS_HASH_FILES=true in the environment (this flag is NOT baked into
+#     the binary — leptos reads it from the runtime env), and
+#   * hash.txt sitting next to the server binary (current_exe dir);
+# both are wired up in the Dockerfile. The CSS link is emitted via
+# <HashedStylesheet> (see src/main.rs) instead of a hard-coded href.
+hash-files = true
 site-root = "target/site"
 site-pkg-dir = "pkg"
 assets-dir = "public"

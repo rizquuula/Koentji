@@ -39,9 +39,17 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=builder --chown=koentji:koentji /app/target/release/koentji .
 COPY --from=builder --chown=koentji:koentji /app/target/site ./target/site
+# hash-files=true renames the bundle to koentji.<hash>.{js,wasm,css}. At
+# runtime HydrationScripts/HashedStylesheet resolve those names by reading
+# hash.txt from the binary's own directory (std::env::current_exe()), so it
+# must sit next to ./koentji. cargo-leptos writes it beside the server binary.
+COPY --from=builder --chown=koentji:koentji /app/target/release/hash.txt ./hash.txt
 
 ENV LEPTOS_SITE_ADDR="0.0.0.0:3000"
 ENV LEPTOS_SITE_ROOT="target/site"
+# hash_files is read from the runtime env (it is NOT baked into the binary the
+# way output_name is), so without this every hashed asset 404s in production.
+ENV LEPTOS_HASH_FILES="true"
 
 EXPOSE 3000
 
