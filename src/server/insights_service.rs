@@ -6,6 +6,8 @@ use leptos::prelude::*;
 /// reports the live picture so an admin can act before keys lapse.
 #[server]
 pub async fn get_dashboard_insights() -> Result<DashboardInsights, ServerFnError> {
+    super::require_admin().await?;
+
     use chrono::Utc;
     use leptos_actix::extract;
     use sqlx::PgPool;

@@ -8,6 +8,8 @@ pub async fn list_keys(
     subscription: String,
     status: String,
 ) -> Result<KeyListResponse, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 
@@ -89,6 +91,8 @@ pub async fn list_keys(
 
 #[server]
 pub async fn create_key(req: CreateKeyRequest) -> Result<AuthenticationKey, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
     use std::sync::Arc;
@@ -191,6 +195,8 @@ pub async fn update_key(
     id: i32,
     req: UpdateKeyRequest,
 ) -> Result<AuthenticationKey, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
     use std::sync::Arc;
@@ -297,6 +303,8 @@ pub async fn update_key(
 
 #[server]
 pub async fn delete_key(id: i32) -> Result<(), ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use std::sync::Arc;
 
@@ -318,6 +326,8 @@ pub async fn delete_key(id: i32) -> Result<(), ServerFnError> {
 
 #[server]
 pub async fn reveal_key(id: i32) -> Result<String, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 
@@ -334,6 +344,8 @@ pub async fn reveal_key(id: i32) -> Result<String, ServerFnError> {
 
 #[server]
 pub async fn reset_rate_limit(id: i32) -> Result<(), ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use std::sync::Arc;
 

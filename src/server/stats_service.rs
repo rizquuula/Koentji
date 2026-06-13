@@ -11,6 +11,8 @@ pub async fn get_dashboard_stats(
     // viewer's local midnight instead of UTC midnight. `0` means UTC.
     tz_offset_minutes: i32,
 ) -> Result<DashboardStats, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 

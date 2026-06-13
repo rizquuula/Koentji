@@ -3,6 +3,8 @@ use leptos::prelude::*;
 
 #[server]
 pub async fn list_subscription_types() -> Result<Vec<SubscriptionType>, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 
@@ -20,6 +22,8 @@ pub async fn list_subscription_types() -> Result<Vec<SubscriptionType>, ServerFn
 
 #[server]
 pub async fn list_all_subscription_types() -> Result<Vec<SubscriptionType>, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 
@@ -39,6 +43,8 @@ pub async fn list_all_subscription_types() -> Result<Vec<SubscriptionType>, Serv
 pub async fn create_subscription_type(
     req: CreateSubscriptionTypeRequest,
 ) -> Result<SubscriptionType, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 
@@ -73,6 +79,8 @@ pub async fn update_subscription_type(
     id: i32,
     req: UpdateSubscriptionTypeRequest,
 ) -> Result<SubscriptionType, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 
@@ -108,6 +116,8 @@ pub async fn update_subscription_type(
 
 #[server]
 pub async fn delete_subscription_type(id: i32) -> Result<(), ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 

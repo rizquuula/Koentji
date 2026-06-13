@@ -244,20 +244,6 @@ pub fn fill_missing_latency_buckets(
     out
 }
 
-#[cfg(feature = "ssr")]
-async fn require_admin() -> Result<(), ServerFnError> {
-    use actix_session::Session;
-    use leptos_actix::extract;
-
-    let session = extract::<Session>().await?;
-    let username = session
-        .get::<String>("username")
-        .map_err(|e| ServerFnError::new(format!("Session error: {e}")))?;
-    if username.is_none() {
-        return Err(ServerFnError::ServerError("unauthorized".into()));
-    }
-    Ok(())
-}
 
 #[cfg(feature = "ssr")]
 #[derive(clickhouse::Row, serde::Deserialize)]
@@ -329,7 +315,7 @@ pub async fn get_rate_limit_usage(
     range: AnalyticsRange,
     auth_key_id: Option<i64>,
 ) -> Result<RateLimitUsageSnapshot, ServerFnError> {
-    require_admin().await?;
+    super::require_admin().await?;
 
     use actix_web::web;
     use leptos_actix::extract;
@@ -422,7 +408,7 @@ pub async fn get_rate_limit_usage(
 pub async fn get_analytics_snapshot(
     range: AnalyticsRange,
 ) -> Result<AnalyticsSnapshot, ServerFnError> {
-    require_admin().await?;
+    super::require_admin().await?;
 
     use actix_web::web;
     use leptos_actix::extract;

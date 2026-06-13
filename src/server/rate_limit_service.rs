@@ -3,6 +3,8 @@ use leptos::prelude::*;
 
 #[server]
 pub async fn list_rate_limit_intervals() -> Result<Vec<RateLimitInterval>, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 
@@ -20,6 +22,8 @@ pub async fn list_rate_limit_intervals() -> Result<Vec<RateLimitInterval>, Serve
 
 #[server]
 pub async fn list_all_rate_limit_intervals() -> Result<Vec<RateLimitInterval>, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 
@@ -39,6 +43,8 @@ pub async fn list_all_rate_limit_intervals() -> Result<Vec<RateLimitInterval>, S
 pub async fn create_rate_limit_interval(
     req: CreateRateLimitIntervalRequest,
 ) -> Result<RateLimitInterval, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 
@@ -72,6 +78,8 @@ pub async fn update_rate_limit_interval(
     id: i32,
     req: UpdateRateLimitIntervalRequest,
 ) -> Result<RateLimitInterval, ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 
@@ -105,6 +113,8 @@ pub async fn update_rate_limit_interval(
 
 #[server]
 pub async fn delete_rate_limit_interval(id: i32) -> Result<(), ServerFnError> {
+    super::require_admin().await?;
+
     use leptos_actix::extract;
     use sqlx::PgPool;
 
