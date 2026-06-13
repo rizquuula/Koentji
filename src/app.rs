@@ -26,7 +26,15 @@ pub fn App() -> impl IntoView {
         // so can't live here. A hard-coded /pkg/koentji.css href would 404
         // once hash-files renames the file to koentji.<hash>.css.
         <Title text="Koentji"/>
-        <Script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"/>
+        // Subresource Integrity: pin the exact chart.js bytes so a CDN
+        // compromise or MITM can't inject arbitrary JS into the admin
+        // origin. `crossorigin` is required for the browser to enforce
+        // `integrity` on a cross-origin script.
+        <Script
+            src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+            integrity="sha384-Y/e9rvkW0vDX3BQwmlCdR5GkIEDEISIXxv8lV/dgsw5AbqqRZUwFRmjMHIu/sFFf"
+            crossorigin="anonymous"
+        />
         <Script src="/assets/js/charts.js"/>
         <Script src="/assets/js/analytics_charts.js"/>
 
