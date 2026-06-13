@@ -10,6 +10,52 @@
 let trafficChart = null;
 let latencyChart = null;
 let denialsChart = null;
+let usageChart = null;
+
+function renderUsageChart(dataJson) {
+    setTimeout(function() {
+        if (typeof dataJson !== 'string' || dataJson.length === 0) return;
+        let data;
+        try {
+            data = JSON.parse(dataJson);
+        } catch (_) {
+            return;
+        }
+
+        const ctx = document.getElementById('usage-chart');
+        if (!ctx) return;
+
+        const labels = formatTrafficLabels(data.ts, data.rangeIs24h);
+        if (usageChart) usageChart.destroy();
+        usageChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Usage consumed',
+                        data: data.usage,
+                        borderColor: '#8B5CF6',
+                        backgroundColor: 'rgba(139, 92, 246, 0.2)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 0,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10 } }
+                },
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+    }, 0);
+}
 
 function renderAnalyticsCharts(dataJson) {
     setTimeout(function() {

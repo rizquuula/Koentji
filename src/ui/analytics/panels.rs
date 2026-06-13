@@ -1,4 +1,4 @@
-use crate::server::analytics_service::AnalyticsSnapshot;
+use crate::server::analytics_service::{AnalyticsSnapshot, RateLimitUsageSnapshot};
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
@@ -10,6 +10,9 @@ use wasm_bindgen::prelude::*;
 extern "C" {
     #[wasm_bindgen(js_name = renderAnalyticsCharts)]
     fn render_analytics_charts_js(data_json: &str);
+
+    #[wasm_bindgen(js_name = renderUsageChart)]
+    fn render_usage_chart_js(data_json: &str);
 }
 
 /// Serialize the snapshot into the wire payload the JS bridge expects and
@@ -118,6 +121,47 @@ pub fn DenialReasonsPanel(has_denials: bool) -> impl IntoView {
                 view! {
                     <div class="flex items-center justify-center text-sm text-gray-500" style="height: 300px">
                         "No denials in this window"
+                    </div>
+                }.into_any()
+            }}
+        </div>
+    }
+}
+
+/// Serialize the usage snapshot into the wire payload the JS bridge expects
+/// and hand it across the wasm → JS boundary as a single JSON string.
+pub fn render_usage_chart(snapshot: &RateLimitUsageSnapshot, range_is_24h: bool) {
+    let ts: Vec<i64> = snapshot.buckets.iter().map(|b| b.ts_unix_ms).collect();
+    let usage: Vec<f64> = snapshot.buckets.iter().map(|b| b.usage).collect();
+
+    let data = serde_json::json!({
+        "ts": ts,
+        "usage": usage,
+        "rangeIs24h": range_is_24h,
+    });
+
+    if let Ok(json_str) = serde_json::to_string(&data) {
+        render_usage_chart_js(&json_str);
+    }
+}
+
+#[component]
+pub fn UsagePanel(has_data: bool) -> impl IntoView {
+    // Empty state in Leptos rather than JS: an empty line chart still draws
+    // axes, which reads as "zero" rather than "no data yet".
+    view! {
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="text-sm font-medium text-gray-500 mb-4">"Rate-limit usage consumed"</h3>
+            {if has_data {
+                view! {
+                    <div class="relative" style="height: 300px">
+                        <canvas id="usage-chart"></canvas>
+                    </div>
+                }.into_any()
+            } else {
+                view! {
+                    <div class="flex items-center justify-center text-sm text-gray-500" style="height: 300px">
+                        "No usage events in this window"
                     </div>
                 }.into_any()
             }}

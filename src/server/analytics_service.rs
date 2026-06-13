@@ -79,6 +79,32 @@ pub struct QuotaPressureRow {
     pub limit: Option<f64>,
 }
 
+/// One time bucket of rate-limit usage consumed, summed across all or a single
+/// key. Aligned to the same `bucket_seconds` grid as traffic buckets.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UsageBucket {
+    pub ts_unix_ms: i64,
+    pub usage: f64,
+}
+
+/// One entry in the key-picker dropdown: the numeric id (used as the filter
+/// param so the server fn receives a typed `i64`) plus the key string for
+/// display (truncated client-side).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UsageKeyOption {
+    pub auth_key_id: i64,
+    pub auth_key: String,
+}
+
+/// Payload returned by `get_rate_limit_usage`. Carries the densified usage
+/// buckets for the requested window/key combination plus the list of keys that
+/// had any traffic in the window (for the filter dropdown).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RateLimitUsageSnapshot {
+    pub buckets: Vec<UsageBucket>,
+    pub available_keys: Vec<UsageKeyOption>,
+}
+
 /// Window-wide rollup for the summary stat cards. `p95_us` is `Option`
 /// because an empty window has no latency to report (renders "—").
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -88,6 +114,40 @@ pub struct WindowSummary {
     pub p95_us: Option<f64>,
     pub unique_keys: u64,
     pub unique_devices: u64,
+}
+
+/// Densify usage sums to the same `bucket_seconds`-aligned grid as traffic,
+/// filling missing buckets with `usage: 0.0`. Unlike latency, a bucket with
+/// no events genuinely consumed zero units, so 0.0 is correct (not a gap).
+///
+/// Pure: no ClickHouse, no async — unit-tested under plain `cargo test`.
+pub fn fill_missing_usage_buckets(
+    queried: &[UsageBucket],
+    now_unix_ms: i64,
+    range: AnalyticsRange,
+) -> Vec<UsageBucket> {
+    let bucket_ms = range.bucket_seconds() as i64 * 1000;
+    let range_ms = range.range_seconds() as i64 * 1000;
+
+    let last_bucket = (now_unix_ms / bucket_ms) * bucket_ms;
+    let first_bucket = ((now_unix_ms - range_ms) / bucket_ms) * bucket_ms;
+
+    let mut lookup = std::collections::HashMap::new();
+    for b in queried {
+        lookup.insert(b.ts_unix_ms, b.usage);
+    }
+
+    let mut out = Vec::new();
+    let mut ts = first_bucket;
+    while ts <= last_bucket {
+        let usage = lookup.get(&ts).copied().unwrap_or(0.0);
+        out.push(UsageBucket {
+            ts_unix_ms: ts,
+            usage,
+        });
+        ts += bucket_ms;
+    }
+    out
 }
 
 /// Microseconds → milliseconds for display. Pure (TDD'd) so the conversion
@@ -248,6 +308,114 @@ struct SummaryRow {
     p95_us: f64,
     unique_keys: u64,
     unique_devices: u64,
+}
+
+#[cfg(feature = "ssr")]
+#[derive(clickhouse::Row, serde::Deserialize)]
+struct UsageRow {
+    ts_unix_ms: i64,
+    usage: f64,
+}
+
+#[cfg(feature = "ssr")]
+#[derive(clickhouse::Row, serde::Deserialize)]
+struct AvailableKeyRow {
+    auth_key_id: i64,
+    auth_key: String,
+}
+
+#[server(GetRateLimitUsage, "/api")]
+pub async fn get_rate_limit_usage(
+    range: AnalyticsRange,
+    auth_key_id: Option<i64>,
+) -> Result<RateLimitUsageSnapshot, ServerFnError> {
+    require_admin().await?;
+
+    use actix_web::web;
+    use leptos_actix::extract;
+
+    let client = extract::<web::Data<clickhouse::Client>>().await?;
+    let bucket_secs = range.bucket_seconds();
+    let range_secs = range.range_seconds();
+
+    // Available-keys query: always unfiltered so the dropdown stays populated
+    // regardless of which key is currently selected.
+    let keys_fut = client
+        .query(
+            "SELECT auth_key_id, any(auth_key) AS auth_key
+             FROM auth_events
+             WHERE ts >= now() - INTERVAL ? second
+               AND auth_key_id != 0
+             GROUP BY auth_key_id
+             ORDER BY sum(usage) DESC
+             LIMIT 200",
+        )
+        .bind(range_secs)
+        .fetch_all::<AvailableKeyRow>();
+
+    // Usage query: two variants so the predicate binding is type-safe. When a
+    // key filter is active we add `AND auth_key_id = ?`; when aggregating all
+    // keys the predicate is omitted entirely (no dummy bind needed).
+    let (usage_rows, key_rows) = match auth_key_id {
+        Some(key_id) => {
+            let usage_fut = client
+                .query(
+                    "SELECT toInt64(toUnixTimestamp(toStartOfInterval(ts, INTERVAL ? second))) * 1000 AS ts_unix_ms,
+                            sum(usage) AS usage
+                     FROM auth_events
+                     WHERE ts >= now() - INTERVAL ? second
+                       AND auth_key_id = ?
+                     GROUP BY ts_unix_ms
+                     ORDER BY ts_unix_ms",
+                )
+                .bind(bucket_secs)
+                .bind(range_secs)
+                .bind(key_id)
+                .fetch_all::<UsageRow>();
+
+            tokio::try_join!(usage_fut, keys_fut).map_err(|e| ServerFnError::new(e.to_string()))?
+        }
+        None => {
+            let usage_fut = client
+                .query(
+                    "SELECT toInt64(toUnixTimestamp(toStartOfInterval(ts, INTERVAL ? second))) * 1000 AS ts_unix_ms,
+                            sum(usage) AS usage
+                     FROM auth_events
+                     WHERE ts >= now() - INTERVAL ? second
+                     GROUP BY ts_unix_ms
+                     ORDER BY ts_unix_ms",
+                )
+                .bind(bucket_secs)
+                .bind(range_secs)
+                .fetch_all::<UsageRow>();
+
+            tokio::try_join!(usage_fut, keys_fut).map_err(|e| ServerFnError::new(e.to_string()))?
+        }
+    };
+
+    let available_keys: Vec<UsageKeyOption> = key_rows
+        .into_iter()
+        .map(|r| UsageKeyOption {
+            auth_key_id: r.auth_key_id,
+            auth_key: r.auth_key,
+        })
+        .collect();
+
+    let queried: Vec<UsageBucket> = usage_rows
+        .into_iter()
+        .map(|r| UsageBucket {
+            ts_unix_ms: r.ts_unix_ms,
+            usage: r.usage,
+        })
+        .collect();
+
+    let now_unix_ms = chrono::Utc::now().timestamp_millis();
+    let buckets = fill_missing_usage_buckets(&queried, now_unix_ms, range);
+
+    Ok(RateLimitUsageSnapshot {
+        buckets,
+        available_keys,
+    })
 }
 
 #[server(GetAnalyticsSnapshot, "/api")]
@@ -649,5 +817,66 @@ mod tests {
         assert_eq!(out.last().unwrap().ts_unix_ms % BUCKET_MS_24H, 0);
         assert!(out.last().unwrap().ts_unix_ms <= now);
         assert!(out.last().unwrap().ts_unix_ms > now - BUCKET_MS_24H);
+    }
+
+    // --- fill_missing_usage_buckets ---
+
+    #[test]
+    fn fill_usage_empty_input_yields_dense_zeroed_window() {
+        let now = ALIGNED_NOW;
+        let out = fill_missing_usage_buckets(&[], now, AnalyticsRange::Last24h);
+
+        // Same slot count as traffic: 1440 + 1 inclusive.
+        assert_eq!(out.len(), 1441);
+        assert!(out.iter().all(|b| b.usage == 0.0));
+        // Aligned and monotonically increasing by one bucket.
+        assert_eq!(out.first().unwrap().ts_unix_ms % BUCKET_MS_24H, 0);
+        assert_eq!(out.last().unwrap().ts_unix_ms, now);
+        for w in out.windows(2) {
+            assert_eq!(w[1].ts_unix_ms - w[0].ts_unix_ms, BUCKET_MS_24H);
+        }
+    }
+
+    #[test]
+    fn fill_usage_gap_in_middle_inserts_zero() {
+        let now = ALIGNED_NOW;
+        let a = now - 3 * BUCKET_MS_24H;
+        let b = now - BUCKET_MS_24H;
+        let queried = vec![
+            UsageBucket {
+                ts_unix_ms: a,
+                usage: 5.5,
+            },
+            UsageBucket {
+                ts_unix_ms: b,
+                usage: 2.0,
+            },
+        ];
+        let out = fill_missing_usage_buckets(&queried, now, AnalyticsRange::Last24h);
+
+        let mid = out
+            .iter()
+            .find(|x| x.ts_unix_ms == now - 2 * BUCKET_MS_24H)
+            .expect("gap bucket must be synthesised");
+        assert_eq!(mid.usage, 0.0);
+
+        let first_real = out.iter().find(|x| x.ts_unix_ms == a).unwrap();
+        assert_eq!(first_real.usage, 5.5);
+        let second_real = out.iter().find(|x| x.ts_unix_ms == b).unwrap();
+        assert_eq!(second_real.usage, 2.0);
+    }
+
+    #[test]
+    fn fill_usage_aligned_boundary_start_and_end() {
+        // Verify first/last bucket are on bucket boundaries even for a non-24h range.
+        let now = ALIGNED_NOW;
+        let out = fill_missing_usage_buckets(&[], now, AnalyticsRange::Last7d);
+        let bucket_ms = AnalyticsRange::Last7d.bucket_seconds() as i64 * 1000;
+        assert_eq!(out.first().unwrap().ts_unix_ms % bucket_ms, 0);
+        assert_eq!(out.last().unwrap().ts_unix_ms % bucket_ms, 0);
+        assert_eq!(
+            out.last().unwrap().ts_unix_ms,
+            (now / bucket_ms) * bucket_ms
+        );
     }
 }
