@@ -74,7 +74,17 @@ impl LoginAttemptLedger {
         let mut state = self.state.lock().expect("ledger mutex poisoned");
         let entry = state.entry(ip.to_string()).or_default();
         prune(entry, now, self.policy.window);
-        self.decide(entry, now)
+        let decision = self.decide(entry, now);
+        // A pure observation must not leave a permanent empty bucket
+        // behind. Otherwise every distinct (and, behind a proxy,
+        // potentially attacker-varied) IP that ever calls `check`
+        // allocates a map entry that `prune` empties but never removes —
+        // unbounded growth / memory-exhaustion. `record_failure` keeps
+        // its entry because it always pushes a fresh timestamp.
+        if entry.is_empty() {
+            state.remove(ip);
+        }
+        decision
     }
 
     /// Record a failure for this IP. Returns the decision *after* the
@@ -95,6 +105,13 @@ impl LoginAttemptLedger {
     pub fn clear(&self, ip: &str) {
         let mut state = self.state.lock().expect("ledger mutex poisoned");
         state.remove(ip);
+    }
+
+    /// Number of IPs currently tracked. Test-only: used to assert that
+    /// pure observations don't leak map entries.
+    #[cfg(test)]
+    fn tracked_ips(&self) -> usize {
+        self.state.lock().expect("ledger mutex poisoned").len()
     }
 
     fn decide(&self, entry: &VecDeque<DateTime<Utc>>, now: DateTime<Utc>) -> AttemptDecision {
@@ -249,6 +266,28 @@ mod tests {
         // At t(1_000): t(0) is exactly `window` old → pruned. One
         // failure remains → allowed.
         assert_eq!(ledger.check("1.2.3.4", t(1_000)), AttemptDecision::Allowed);
+    }
+
+    #[test]
+    fn check_on_unknown_ip_does_not_leak_a_map_entry() {
+        // A pure `check` on an IP with no live failures must not leave a
+        // permanent empty bucket — otherwise a proxy that lets callers
+        // vary the apparent IP could grow the map without bound.
+        let ledger = LoginAttemptLedger::new(ms_policy(5, 5_000));
+        ledger.check("1.2.3.4", t(0));
+        ledger.check("5.6.7.8", t(0));
+        assert_eq!(ledger.tracked_ips(), 0);
+    }
+
+    #[test]
+    fn check_after_failures_age_out_drops_the_bucket() {
+        let ledger = LoginAttemptLedger::new(ms_policy(2, 1_000));
+        ledger.record_failure("1.2.3.4", t(0));
+        assert_eq!(ledger.tracked_ips(), 1);
+        // At t(2_000) the lone failure has aged out; the observing
+        // `check` should prune it and remove the now-empty bucket.
+        assert_eq!(ledger.check("1.2.3.4", t(2_000)), AttemptDecision::Allowed);
+        assert_eq!(ledger.tracked_ips(), 0);
     }
 
     #[test]

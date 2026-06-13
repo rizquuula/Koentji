@@ -76,14 +76,26 @@ pub async fn login(username: String, password: String) -> Result<bool, ServerFnE
 
 #[cfg(feature = "ssr")]
 fn peer_ip_from_request(req: &actix_web::HttpRequest) -> String {
-    // `realip_remote_addr` consults X-Forwarded-For / Forwarded first,
-    // falling back to the socket peer — good enough for a
-    // single-replica admin dashboard behind a trusted reverse proxy.
-    // If we ever run without a proxy we can tighten this to
-    // `peer_addr` only.
-    req.connection_info()
-        .realip_remote_addr()
-        .map(str::to_owned)
+    // Lockout key. We must NOT trust `X-Forwarded-For` here:
+    // `realip_remote_addr()` reads the *left-most* XFF value, which the
+    // client controls. Our nginx front appends to XFF
+    // (`$proxy_add_x_forwarded_for`), so a caller can forge an arbitrary
+    // left-most IP per request and land in a fresh lockout bucket every
+    // time — defeating the per-IP limit entirely.
+    //
+    // nginx sets `X-Real-IP` to the verified socket peer (`$remote_addr`),
+    // which the client cannot spoof through the proxy. Prefer it, then
+    // fall back to the direct socket peer for proxy-less / test runs.
+    if let Some(real_ip) = req.headers().get("X-Real-IP") {
+        if let Ok(s) = real_ip.to_str() {
+            let trimmed = s.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+    req.peer_addr()
+        .map(|addr| addr.ip().to_string())
         .unwrap_or_else(|| "unknown".to_string())
 }
 
