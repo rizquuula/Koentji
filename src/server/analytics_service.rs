@@ -244,7 +244,6 @@ pub fn fill_missing_latency_buckets(
     out
 }
 
-
 #[cfg(feature = "ssr")]
 #[derive(clickhouse::Row, serde::Deserialize)]
 struct TrafficRow {

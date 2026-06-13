@@ -19,7 +19,9 @@ pub(crate) async fn require_admin() -> Result<(), leptos::prelude::ServerFnError
         .get::<String>("username")
         .map_err(|e| leptos::prelude::ServerFnError::new(format!("Session error: {e}")))?;
     if username.is_none() {
-        return Err(leptos::prelude::ServerFnError::ServerError("unauthorized".into()));
+        return Err(leptos::prelude::ServerFnError::ServerError(
+            "unauthorized".into(),
+        ));
     }
     Ok(())
 }
