@@ -12,13 +12,20 @@ services:
       - "3000"
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgres://koentji:koentji@db:5432/koentjilab}
-      - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string-at-least-64-bytes-long}
+      # Empty by default so the app uses its built-in dev key fallback.
+      # A production deploy MUST set SECRET_KEY (>= 64 bytes) and
+      # COOKIE_SECURE=true (see below) or the server refuses to start.
+      - SECRET_KEY=${SECRET_KEY:-}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - FREE_TRIAL_KEY=${FREE_TRIAL_KEY:-FREE_TRIAL}
       - AUTH_CACHE_TTL_SECONDS=${AUTH_CACHE_TTL_SECONDS:-900}
-      - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      # This bundled stack is fronted by http-only nginx, so it runs as a
+      # dev posture by default (Secure cookies aren't sent over http
+      # anyway). Production: put TLS in front, set COOKIE_SECURE=true, and
+      # provide SECRET_KEY + ADMIN_PASSWORD_HASH — otherwise boot fails closed.
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
       - CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://koentji:koentji@clickhouse:8123/koentji}
     depends_on:
       db:

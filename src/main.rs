@@ -144,18 +144,16 @@ async fn main() -> std::io::Result<()> {
     let ch_client_data = ch_client.clone();
     let login_ledger = std::sync::Arc::new(LoginAttemptLedger::new(LockoutPolicy::default_admin()));
 
-    let secret_key = std::env::var("SECRET_KEY").unwrap_or_else(|_| {
-        log::warn!("SECRET_KEY not set, using insecure default — set SECRET_KEY in production");
-        "a-very-secret-key-that-should-be-at-least-64-bytes-long-for-security-purposes-change-me"
-            .to_string()
-    });
-    let cookie_key = Key::from(secret_key.as_bytes());
-
     // Session cookie `Secure` flag. Defaults to `true` — shipping an
     // admin session cookie over plain HTTP in production is a
     // credential-theft vector. Dev and e2e run on `http://localhost`
     // and must opt out with `COOKIE_SECURE=false`. Misconfiguration is
     // visible at boot via the warn line.
+    //
+    // `cookie_secure` doubles as this binary's production-posture signal:
+    // a deployment that has *not* opted out of secure cookies is treated
+    // as production, and the credential fail-closed checks below refuse
+    // to boot on insecure defaults.
     let cookie_secure = match std::env::var("COOKIE_SECURE").as_deref() {
         Ok("false") | Ok("0") | Ok("no") => false,
         Ok(_) => true,
@@ -166,6 +164,64 @@ async fn main() -> std::io::Result<()> {
             true
         }
     };
+
+    // Session signing/encryption key. A fixed fallback would let anyone
+    // who reads the source forge an admin session cookie, so we only
+    // permit the insecure dev default when the deployment has declared a
+    // dev posture (`COOKIE_SECURE=false`). In production posture a
+    // missing/empty/too-short `SECRET_KEY` fails closed rather than
+    // silently signing sessions with a known key.
+    let secret_key = match std::env::var("SECRET_KEY") {
+        Ok(k) if !k.trim().is_empty() => {
+            if k.len() < 64 {
+                log::error!(
+                    "SECRET_KEY must be at least 64 bytes (got {}). Refusing to start.",
+                    k.len()
+                );
+                std::process::exit(1);
+            }
+            k
+        }
+        _ => {
+            if cookie_secure {
+                log::error!(
+                    "SECRET_KEY is not set. Refusing to start in production posture with a \
+                     known, source-visible default key (admin sessions would be forgeable). \
+                     Set SECRET_KEY to a random value of at least 64 bytes, or set \
+                     COOKIE_SECURE=false for local dev."
+                );
+                std::process::exit(1);
+            }
+            log::warn!(
+                "SECRET_KEY not set — using the insecure dev default \
+                 (permitted only because COOKIE_SECURE=false)"
+            );
+            "a-very-secret-key-that-should-be-at-least-64-bytes-long-for-security-purposes-change-me"
+                .to_string()
+        }
+    };
+    let cookie_key = Key::from(secret_key.as_bytes());
+
+    // Admin password posture. The plaintext `ADMIN_PASSWORD` fallback
+    // exists only for local dev/e2e. In production posture
+    // (`COOKIE_SECURE=true`) require the argon2id `ADMIN_PASSWORD_HASH`
+    // and refuse to start on a plaintext-only configuration — otherwise a
+    // default such as `ADMIN_PASSWORD=admin` silently becomes the live
+    // admin credential.
+    if cookie_secure {
+        let has_hash = std::env::var("ADMIN_PASSWORD_HASH")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+        if !has_hash {
+            log::error!(
+                "ADMIN_PASSWORD_HASH is not set. Refusing to start in production posture with \
+                 the plaintext ADMIN_PASSWORD fallback. Set ADMIN_PASSWORD_HASH to an argon2id \
+                 PHC hash (see `make hash-admin-password`), or set COOKIE_SECURE=false for local \
+                 dev."
+            );
+            std::process::exit(1);
+        }
+    }
 
     let conf = get_configuration(None).unwrap();
     let addr = conf.leptos_options.site_addr;
