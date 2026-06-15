@@ -1,6 +1,6 @@
 use crate::server::analytics_service::{
-    get_analytics_snapshot, get_rate_limit_usage, AnalyticsRange, AnalyticsSnapshot,
-    RateLimitUsageSnapshot,
+    effective_bucket_seconds, effective_granularity, get_analytics_snapshot, get_rate_limit_usage,
+    AnalyticsRange, AnalyticsSnapshot, RateLimitUsageSnapshot, TimeGranularity,
 };
 use crate::ui::analytics::panels::{
     render_analytics_charts, render_usage_chart, DenialReasonsPanel, LatencyPanel, TrafficPanel,
@@ -12,8 +12,14 @@ use crate::ui::design::select::Select;
 use crate::ui::shell::layout::Layout;
 use leptos::prelude::*;
 
-/// How often the page silently re-fetches the snapshot.
-const REFRESH_INTERVAL_SECS: u64 = 30;
+/// Default auto-refresh cadence, in seconds — the dropdown's initial pick.
+const DEFAULT_REFRESH_SECS: u64 = 30;
+
+/// Auto-refresh dropdown options as `(label, seconds)`. `0` is the "Off"
+/// sentinel — a `0`-second interval means "don't poll", so the page freezes on
+/// the current snapshot until the admin picks a live cadence again.
+const REFRESH_OPTIONS: [(&str, u64); 5] =
+    [("Off", 0), ("5s", 5), ("15s", 15), ("30s", 30), ("60s", 60)];
 
 /// Parse a non-empty string to `Some(i64)`, empty string to `None`. The
 /// dropdown stores the key id as a string (HTML value attributes are always
@@ -29,12 +35,18 @@ fn parse_key_id(s: String) -> Option<i64> {
 #[component]
 pub fn AnalyticsPage() -> impl IntoView {
     let range = RwSignal::new(AnalyticsRange::Last24h);
+    let granularity = RwSignal::new(TimeGranularity::Minutely);
     let selected_key = RwSignal::new(String::new());
+    // `0` is the "Off" sentinel — see `REFRESH_OPTIONS`.
+    let refresh_secs = RwSignal::new(DEFAULT_REFRESH_SECS);
 
-    let snapshot = Resource::new(move || range.get(), get_analytics_snapshot);
+    let snapshot = Resource::new(
+        move || (range.get(), granularity.get()),
+        |(r, g)| get_analytics_snapshot(r, g),
+    );
     let usage_resource = Resource::new(
-        move || (range.get(), selected_key.get()),
-        |(r, k)| get_rate_limit_usage(r, parse_key_id(k)),
+        move || (range.get(), granularity.get(), selected_key.get()),
+        |(r, g, k)| get_rate_limit_usage(r, parse_key_id(k), g),
     );
 
     // Last-good snapshot, paired with the range it was fetched under. Panels
@@ -52,7 +64,8 @@ pub fn AnalyticsPage() -> impl IntoView {
     Effect::new(move || {
         if let Some(Ok(snap)) = snapshot.get() {
             let r = range.get_untracked();
-            render_analytics_charts(&snap, r == AnalyticsRange::Last24h);
+            let bucket_secs = effective_bucket_seconds(r, granularity.get_untracked());
+            render_analytics_charts(&snap, r == AnalyticsRange::Last24h, bucket_secs);
             last_good.set(Some((r, snap)));
         }
     });
@@ -61,15 +74,33 @@ pub fn AnalyticsPage() -> impl IntoView {
     Effect::new(move || {
         if let Some(Ok(snap)) = usage_resource.get() {
             let r = range.get_untracked();
-            render_usage_chart(&snap, r == AnalyticsRange::Last24h);
+            let bucket_secs = effective_bucket_seconds(r, granularity.get_untracked());
+            render_usage_chart(&snap, r == AnalyticsRange::Last24h, bucket_secs);
             last_good_usage.set(Some(snap));
         }
     });
 
-    // Auto-refresh: tick every 30s and refetch, skipping ticks while the tab
-    // is hidden so background tabs don't hammer ClickHouse. The handle is
-    // cleared on disposal or it leaks across client-side navigations.
+    // Auto-refresh: tick at the admin-chosen cadence and refetch, skipping
+    // ticks while the tab is hidden so background tabs don't hammer ClickHouse.
+    // The interval is rebuilt whenever `refresh_secs` changes — the prior
+    // handle is cleared first (held in a `StoredValue` so re-runs and final
+    // disposal both reach it) or timers leak across cadence switches and
+    // client-side navigations. A `0` cadence ("Off") tears the timer down and
+    // installs none, freezing the page on the current snapshot.
+    let timer = StoredValue::new(None::<leptos::prelude::IntervalHandle>);
+    let clear_timer = move || {
+        timer.update_value(|slot| {
+            if let Some(handle) = slot.take() {
+                handle.clear();
+            }
+        });
+    };
     Effect::new(move |_| {
+        let secs = refresh_secs.get();
+        clear_timer();
+        if secs == 0 {
+            return;
+        }
         let handle = set_interval_with_handle(
             move || {
                 if !document().hidden() {
@@ -77,12 +108,13 @@ pub fn AnalyticsPage() -> impl IntoView {
                     usage_resource.refetch();
                 }
             },
-            std::time::Duration::from_secs(REFRESH_INTERVAL_SECS),
+            std::time::Duration::from_secs(secs),
         );
         if let Ok(handle) = handle {
-            on_cleanup(move || handle.clear());
+            timer.set_value(Some(handle));
         }
     });
+    on_cleanup(clear_timer);
 
     let button_class = move |r: AnalyticsRange| {
         if range.get() == r {
@@ -96,15 +128,69 @@ pub fn AnalyticsPage() -> impl IntoView {
     let class_7d = move || button_class(AnalyticsRange::Last7d);
     let class_30d = move || button_class(AnalyticsRange::Last30d);
 
+    // Shared look for the two dropdowns so they sit flush with the range pills.
+    const CONTROL_CLASS: &str = "px-3 py-1.5 text-sm font-medium rounded-lg bg-white text-gray-700 border focus:ring-2 focus:ring-blue-500 focus:border-blue-500";
+
+    // When the picked granularity is too fine for the window it's coerced up
+    // (see `effective_bucket_seconds`); tell the admin what they're actually
+    // looking at rather than silently swapping the resolution under them.
+    let coercion_note = move || {
+        let r = range.get();
+        let g = granularity.get();
+        let effective = effective_granularity(r, g);
+        (effective != g).then(|| {
+            format!(
+                "{} is too fine for this window — showing {} buckets.",
+                g.label(),
+                effective.label().to_lowercase()
+            )
+        })
+    };
+
     view! {
         <Layout active_tab="analytics">
             <div class="space-y-6">
-                <div class="flex items-center justify-between">
+                <div class="flex items-start justify-between gap-4 flex-wrap">
                     <h1 class="text-2xl font-bold text-gray-900">"Analytics"</h1>
-                    <div class="flex items-center space-x-2 flex-wrap gap-y-2">
-                        <button class=class_24h on:click=move |_| range.set(AnalyticsRange::Last24h)>"24 Hours"</button>
-                        <button class=class_7d on:click=move |_| range.set(AnalyticsRange::Last7d)>"7 Days"</button>
-                        <button class=class_30d on:click=move |_| range.set(AnalyticsRange::Last30d)>"30 Days"</button>
+                    <div class="flex flex-col items-end gap-2">
+                        <div class="flex items-center space-x-2 flex-wrap gap-y-2 justify-end">
+                            <button class=class_24h on:click=move |_| range.set(AnalyticsRange::Last24h)>"24 Hours"</button>
+                            <button class=class_7d on:click=move |_| range.set(AnalyticsRange::Last7d)>"7 Days"</button>
+                            <button class=class_30d on:click=move |_| range.set(AnalyticsRange::Last30d)>"30 Days"</button>
+
+                            // Bucket granularity — independent of the window above.
+                            <label class="text-sm font-medium text-gray-500 ml-2">"Bucket"</label>
+                            <select
+                                class=CONTROL_CLASS
+                                aria-label="Bucket granularity"
+                                prop:value=move || granularity.get().as_value().to_string()
+                                on:change=move |ev| granularity.set(
+                                    TimeGranularity::from_value(&event_target_value(&ev))
+                                )
+                            >
+                                {TimeGranularity::ALL.into_iter().map(|g| view! {
+                                    <option value=g.as_value()>{g.label()}</option>
+                                }).collect::<Vec<_>>()}
+                            </select>
+
+                            // Auto-refresh cadence — "Off" stops polling entirely.
+                            <label class="text-sm font-medium text-gray-500 ml-2">"Refresh"</label>
+                            <select
+                                class=CONTROL_CLASS
+                                aria-label="Auto-refresh interval"
+                                prop:value=move || refresh_secs.get().to_string()
+                                on:change=move |ev| refresh_secs.set(
+                                    event_target_value(&ev).parse::<u64>().unwrap_or(DEFAULT_REFRESH_SECS)
+                                )
+                            >
+                                {REFRESH_OPTIONS.into_iter().map(|(label, secs)| view! {
+                                    <option value=secs.to_string()>{label}</option>
+                                }).collect::<Vec<_>>()}
+                            </select>
+                        </div>
+                        {move || coercion_note().map(|note| view! {
+                            <p class="text-xs text-amber-600">{note}</p>
+                        })}
                     </div>
                 </div>
 

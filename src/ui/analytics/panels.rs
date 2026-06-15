@@ -21,7 +21,7 @@ extern "C" {
 /// ("HH:MM" for the 24h window, "DD Mon HH:MM" for wider windows where a bare
 /// time would be ambiguous across days). Formatting can't live in Rust here:
 /// this runs in wasm, where `chrono` has no access to the viewer's local zone.
-pub fn render_analytics_charts(snapshot: &AnalyticsSnapshot, range_is_24h: bool) {
+pub fn render_analytics_charts(snapshot: &AnalyticsSnapshot, range_is_24h: bool, bucket_secs: u32) {
     let traffic_ts: Vec<i64> = snapshot.traffic.iter().map(|b| b.ts_unix_ms).collect();
     let allowed: Vec<u64> = snapshot.traffic.iter().map(|b| b.allowed).collect();
     let denied: Vec<u64> = snapshot.traffic.iter().map(|b| b.denied).collect();
@@ -51,6 +51,7 @@ pub fn render_analytics_charts(snapshot: &AnalyticsSnapshot, range_is_24h: bool)
     let data = serde_json::json!({
         "trafficTs": traffic_ts,
         "rangeIs24h": range_is_24h,
+        "bucketSecs": bucket_secs,
         "trafficAllowed": allowed,
         "trafficDenied": denied,
         "latencyP50": latency_p50,
@@ -130,7 +131,7 @@ pub fn DenialReasonsPanel(has_denials: bool) -> impl IntoView {
 
 /// Serialize the usage snapshot into the wire payload the JS bridge expects
 /// and hand it across the wasm → JS boundary as a single JSON string.
-pub fn render_usage_chart(snapshot: &RateLimitUsageSnapshot, range_is_24h: bool) {
+pub fn render_usage_chart(snapshot: &RateLimitUsageSnapshot, range_is_24h: bool, bucket_secs: u32) {
     let ts: Vec<i64> = snapshot.buckets.iter().map(|b| b.ts_unix_ms).collect();
     let usage: Vec<f64> = snapshot.buckets.iter().map(|b| b.usage).collect();
 
@@ -138,6 +139,7 @@ pub fn render_usage_chart(snapshot: &RateLimitUsageSnapshot, range_is_24h: bool)
         "ts": ts,
         "usage": usage,
         "rangeIs24h": range_is_24h,
+        "bucketSecs": bucket_secs,
     });
 
     if let Ok(json_str) = serde_json::to_string(&data) {

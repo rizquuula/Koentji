@@ -9,15 +9,6 @@ pub enum AnalyticsRange {
 }
 
 impl AnalyticsRange {
-    /// Bucket size in seconds for the requested window.
-    pub fn bucket_seconds(self) -> u32 {
-        match self {
-            AnalyticsRange::Last24h => 60,
-            AnalyticsRange::Last7d => 900,
-            AnalyticsRange::Last30d => 3600,
-        }
-    }
-
     /// Total window length in seconds.
     pub fn range_seconds(self) -> u32 {
         match self {
@@ -25,6 +16,123 @@ impl AnalyticsRange {
             AnalyticsRange::Last7d => 604_800,
             AnalyticsRange::Last30d => 2_592_000,
         }
+    }
+}
+
+/// Bucket resolution the admin picks independently of the window. The window
+/// (`AnalyticsRange`) says *how far back* to look; the granularity says *how
+/// coarse* each bucket is. A silly pairing (minutely over 30 days) is reined
+/// in by [`effective_bucket_seconds`] rather than rejected.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TimeGranularity {
+    Minutely,
+    Hourly,
+    Daily,
+    Weekly,
+    Monthly,
+}
+
+/// Standard bucket sizes in ascending order — the ladder `effective_bucket_seconds`
+/// climbs when a finer granularity would blow past [`MAX_BUCKETS`]. A "month"
+/// is the conventional 30-day approximation (matches `Last30d`'s span).
+const GRANULARITY_STEPS: [u32; 5] = [60, 3_600, 86_400, 604_800, 2_592_000];
+
+/// Hard cap on buckets per chart. Past this the x-axis is an unreadable smear
+/// and the densify loop balloons, so a too-fine granularity is coerced up to
+/// the next standard step until the window fits. 1500 keeps the existing
+/// 24h-minutely view (1440 buckets) intact.
+pub const MAX_BUCKETS: u32 = 1500;
+
+impl TimeGranularity {
+    /// Every variant, smallest first — drives the selector's option list.
+    pub const ALL: [TimeGranularity; 5] = [
+        TimeGranularity::Minutely,
+        TimeGranularity::Hourly,
+        TimeGranularity::Daily,
+        TimeGranularity::Weekly,
+        TimeGranularity::Monthly,
+    ];
+
+    /// Requested bucket size in seconds, *before* clamping to the window.
+    pub fn bucket_seconds(self) -> u32 {
+        match self {
+            TimeGranularity::Minutely => 60,
+            TimeGranularity::Hourly => 3_600,
+            TimeGranularity::Daily => 86_400,
+            TimeGranularity::Weekly => 604_800,
+            TimeGranularity::Monthly => 2_592_000,
+        }
+    }
+
+    /// Human label for the dropdown.
+    pub fn label(self) -> &'static str {
+        match self {
+            TimeGranularity::Minutely => "Minutely",
+            TimeGranularity::Hourly => "Hourly",
+            TimeGranularity::Daily => "Daily",
+            TimeGranularity::Weekly => "Weekly",
+            TimeGranularity::Monthly => "Monthly",
+        }
+    }
+
+    /// Stable string for the `<option value>` round-trip (HTML values are
+    /// always strings).
+    pub fn as_value(self) -> &'static str {
+        match self {
+            TimeGranularity::Minutely => "minutely",
+            TimeGranularity::Hourly => "hourly",
+            TimeGranularity::Daily => "daily",
+            TimeGranularity::Weekly => "weekly",
+            TimeGranularity::Monthly => "monthly",
+        }
+    }
+
+    /// Inverse of [`as_value`]; unknown strings fall back to `Hourly`.
+    pub fn from_value(s: &str) -> TimeGranularity {
+        match s {
+            "minutely" => TimeGranularity::Minutely,
+            "daily" => TimeGranularity::Daily,
+            "weekly" => TimeGranularity::Weekly,
+            "monthly" => TimeGranularity::Monthly,
+            _ => TimeGranularity::Hourly,
+        }
+    }
+}
+
+/// Effective bucket size for a (window, granularity) pair. Starts at the
+/// requested granularity and climbs `GRANULARITY_STEPS` until the window holds
+/// at most [`MAX_BUCKETS`] buckets, so e.g. "30 days, minutely" (43 200 buckets)
+/// becomes hourly rather than an unreadable line. Pure — unit-tested without a DB.
+pub fn effective_bucket_seconds(range: AnalyticsRange, granularity: TimeGranularity) -> u32 {
+    let requested = granularity.bucket_seconds();
+    let range_secs = range.range_seconds();
+    // Walk the ladder from the requested step up; take the first that fits the
+    // cap. If none fits (absurdly wide window), the coarsest step wins.
+    let mut chosen = *GRANULARITY_STEPS.last().expect("ladder is non-empty");
+    for &step in GRANULARITY_STEPS.iter() {
+        if step < requested {
+            continue;
+        }
+        chosen = step;
+        if range_secs / step <= MAX_BUCKETS {
+            break;
+        }
+    }
+    chosen
+}
+
+/// The granularity actually rendered after clamping — what the UI shows in its
+/// "coerced to …" note. Maps the effective bucket size back onto a variant.
+pub fn effective_granularity(
+    range: AnalyticsRange,
+    granularity: TimeGranularity,
+) -> TimeGranularity {
+    match effective_bucket_seconds(range, granularity) {
+        60 => TimeGranularity::Minutely,
+        3_600 => TimeGranularity::Hourly,
+        86_400 => TimeGranularity::Daily,
+        604_800 => TimeGranularity::Weekly,
+        _ => TimeGranularity::Monthly,
     }
 }
 
@@ -125,8 +233,9 @@ pub fn fill_missing_usage_buckets(
     queried: &[UsageBucket],
     now_unix_ms: i64,
     range: AnalyticsRange,
+    bucket_secs: u32,
 ) -> Vec<UsageBucket> {
-    let bucket_ms = range.bucket_seconds() as i64 * 1000;
+    let bucket_ms = bucket_secs as i64 * 1000;
     let range_ms = range.range_seconds() as i64 * 1000;
 
     let last_bucket = (now_unix_ms / bucket_ms) * bucket_ms;
@@ -179,8 +288,9 @@ pub fn fill_missing_buckets(
     queried: &[TrafficBucket],
     now_unix_ms: i64,
     range: AnalyticsRange,
+    bucket_secs: u32,
 ) -> Vec<TrafficBucket> {
-    let bucket_ms = range.bucket_seconds() as i64 * 1000;
+    let bucket_ms = bucket_secs as i64 * 1000;
     let range_ms = range.range_seconds() as i64 * 1000;
 
     // Snap both ends down to a bucket boundary, mirroring ClickHouse's
@@ -217,8 +327,9 @@ pub fn fill_missing_latency_buckets(
     queried: &[LatencyBucket],
     now_unix_ms: i64,
     range: AnalyticsRange,
+    bucket_secs: u32,
 ) -> Vec<LatencyBucket> {
-    let bucket_ms = range.bucket_seconds() as i64 * 1000;
+    let bucket_ms = bucket_secs as i64 * 1000;
     let range_ms = range.range_seconds() as i64 * 1000;
 
     let last_bucket = (now_unix_ms / bucket_ms) * bucket_ms;
@@ -313,6 +424,7 @@ struct AvailableKeyRow {
 pub async fn get_rate_limit_usage(
     range: AnalyticsRange,
     auth_key_id: Option<i64>,
+    granularity: TimeGranularity,
 ) -> Result<RateLimitUsageSnapshot, ServerFnError> {
     super::require_admin().await?;
 
@@ -320,7 +432,7 @@ pub async fn get_rate_limit_usage(
     use leptos_actix::extract;
 
     let client = extract::<web::Data<clickhouse::Client>>().await?;
-    let bucket_secs = range.bucket_seconds();
+    let bucket_secs = effective_bucket_seconds(range, granularity);
     let range_secs = range.range_seconds();
 
     // Available-keys query: always unfiltered so the dropdown stays populated
@@ -395,7 +507,7 @@ pub async fn get_rate_limit_usage(
         .collect();
 
     let now_unix_ms = chrono::Utc::now().timestamp_millis();
-    let buckets = fill_missing_usage_buckets(&queried, now_unix_ms, range);
+    let buckets = fill_missing_usage_buckets(&queried, now_unix_ms, range, bucket_secs);
 
     Ok(RateLimitUsageSnapshot {
         buckets,
@@ -406,6 +518,7 @@ pub async fn get_rate_limit_usage(
 #[server(GetAnalyticsSnapshot, "/api")]
 pub async fn get_analytics_snapshot(
     range: AnalyticsRange,
+    granularity: TimeGranularity,
 ) -> Result<AnalyticsSnapshot, ServerFnError> {
     super::require_admin().await?;
 
@@ -413,7 +526,7 @@ pub async fn get_analytics_snapshot(
     use leptos_actix::extract;
 
     let client = extract::<web::Data<clickhouse::Client>>().await?;
-    let bucket_secs = range.bucket_seconds();
+    let bucket_secs = effective_bucket_seconds(range, granularity);
     let range_secs = range.range_seconds();
 
     // Fan the per-panel ClickHouse queries out concurrently rather than
@@ -618,8 +731,8 @@ pub async fn get_analytics_snapshot(
         });
 
     let now_unix_ms = chrono::Utc::now().timestamp_millis();
-    let traffic = fill_missing_buckets(&queried_traffic, now_unix_ms, range);
-    let latency = fill_missing_latency_buckets(&queried_latency, now_unix_ms, range);
+    let traffic = fill_missing_buckets(&queried_traffic, now_unix_ms, range, bucket_secs);
+    let latency = fill_missing_latency_buckets(&queried_latency, now_unix_ms, range, bucket_secs);
 
     Ok(AnalyticsSnapshot {
         traffic,
@@ -636,10 +749,70 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bucket_seconds_matches_range() {
-        assert_eq!(AnalyticsRange::Last24h.bucket_seconds(), 60);
-        assert_eq!(AnalyticsRange::Last7d.bucket_seconds(), 900);
-        assert_eq!(AnalyticsRange::Last30d.bucket_seconds(), 3600);
+    fn granularity_bucket_seconds_are_the_standard_steps() {
+        assert_eq!(TimeGranularity::Minutely.bucket_seconds(), 60);
+        assert_eq!(TimeGranularity::Hourly.bucket_seconds(), 3_600);
+        assert_eq!(TimeGranularity::Daily.bucket_seconds(), 86_400);
+        assert_eq!(TimeGranularity::Weekly.bucket_seconds(), 604_800);
+        assert_eq!(TimeGranularity::Monthly.bucket_seconds(), 2_592_000);
+    }
+
+    #[test]
+    fn granularity_value_round_trips() {
+        for g in TimeGranularity::ALL {
+            assert_eq!(TimeGranularity::from_value(g.as_value()), g);
+        }
+        // Unknown strings fall back to Hourly rather than panicking.
+        assert_eq!(
+            TimeGranularity::from_value("nonsense"),
+            TimeGranularity::Hourly
+        );
+    }
+
+    #[test]
+    fn effective_bucket_keeps_a_fitting_granularity_untouched() {
+        // 24h / 1min = 1440 buckets, under the cap — left as minutely.
+        assert_eq!(
+            effective_bucket_seconds(AnalyticsRange::Last24h, TimeGranularity::Minutely),
+            60
+        );
+        // 30d / 1day = 30 buckets — left as daily.
+        assert_eq!(
+            effective_bucket_seconds(AnalyticsRange::Last30d, TimeGranularity::Daily),
+            86_400
+        );
+    }
+
+    #[test]
+    fn effective_bucket_coerces_too_fine_granularity_up() {
+        // 7d / 1min = 10 080 buckets > 1500 → climbs to hourly (168 buckets).
+        assert_eq!(
+            effective_bucket_seconds(AnalyticsRange::Last7d, TimeGranularity::Minutely),
+            3_600
+        );
+        // 30d / 1min = 43 200 → also hourly (720 buckets ≤ 1500).
+        assert_eq!(
+            effective_bucket_seconds(AnalyticsRange::Last30d, TimeGranularity::Minutely),
+            3_600
+        );
+        assert_eq!(
+            effective_granularity(AnalyticsRange::Last30d, TimeGranularity::Minutely),
+            TimeGranularity::Hourly
+        );
+    }
+
+    #[test]
+    fn effective_bucket_allows_coarse_granularity_on_a_short_window() {
+        // Monthly bucket over 24h collapses to a single bucket — that's fine,
+        // not coerced (the requested step already fits the cap).
+        assert_eq!(
+            effective_bucket_seconds(AnalyticsRange::Last24h, TimeGranularity::Monthly),
+            2_592_000
+        );
+        assert_eq!(
+            effective_granularity(AnalyticsRange::Last24h, TimeGranularity::Monthly),
+            TimeGranularity::Monthly
+        );
     }
 
     #[test]
@@ -657,7 +830,7 @@ mod tests {
     #[test]
     fn fill_empty_input_yields_dense_zeroed_window() {
         let now = ALIGNED_NOW;
-        let out = fill_missing_buckets(&[], now, AnalyticsRange::Last24h);
+        let out = fill_missing_buckets(&[], now, AnalyticsRange::Last24h, 60);
 
         // 24h / 60s = 1440 buckets, plus the inclusive end bucket = 1441.
         assert_eq!(out.len(), 1441);
@@ -688,7 +861,7 @@ mod tests {
                 denied: 1,
             },
         ];
-        let out = fill_missing_buckets(&queried, now, AnalyticsRange::Last24h);
+        let out = fill_missing_buckets(&queried, now, AnalyticsRange::Last24h, 60);
 
         let mid = out
             .iter()
@@ -711,7 +884,7 @@ mod tests {
             allowed: 7,
             denied: 3,
         }];
-        let out = fill_missing_buckets(&queried, now, AnalyticsRange::Last24h);
+        let out = fill_missing_buckets(&queried, now, AnalyticsRange::Last24h, 60);
 
         assert_eq!(
             (out.first().unwrap().allowed, out.first().unwrap().denied),
@@ -733,7 +906,7 @@ mod tests {
             allowed: 9,
             denied: 0,
         }];
-        let out = fill_missing_buckets(&queried, now, AnalyticsRange::Last24h);
+        let out = fill_missing_buckets(&queried, now, AnalyticsRange::Last24h, 60);
 
         assert_eq!(
             (out.first().unwrap().allowed, out.first().unwrap().denied),
@@ -757,7 +930,7 @@ mod tests {
     #[test]
     fn fill_latency_empty_input_is_all_gaps_not_zeros() {
         let now = ALIGNED_NOW;
-        let out = fill_missing_latency_buckets(&[], now, AnalyticsRange::Last24h);
+        let out = fill_missing_latency_buckets(&[], now, AnalyticsRange::Last24h, 60);
 
         assert_eq!(out.len(), 1441);
         // Every slot is a gap (None), never a misleading 0ms point.
@@ -777,7 +950,7 @@ mod tests {
             p95_ms: Some(4.0),
             p99_ms: Some(9.0),
         }];
-        let out = fill_missing_latency_buckets(&queried, now, AnalyticsRange::Last24h);
+        let out = fill_missing_latency_buckets(&queried, now, AnalyticsRange::Last24h, 60);
 
         let real = out.iter().find(|x| x.ts_unix_ms == a).unwrap();
         assert_eq!(real.p50_ms, Some(1.5));
@@ -796,7 +969,7 @@ mod tests {
     fn fill_snaps_unaligned_now_to_bucket_boundaries() {
         // `now` sits mid-bucket; output endpoints must still be aligned.
         let now = 1_700_000_000_000 + 37_123;
-        let out = fill_missing_buckets(&[], now, AnalyticsRange::Last24h);
+        let out = fill_missing_buckets(&[], now, AnalyticsRange::Last24h, 60);
 
         assert_eq!(out.first().unwrap().ts_unix_ms % BUCKET_MS_24H, 0);
         assert_eq!(out.last().unwrap().ts_unix_ms % BUCKET_MS_24H, 0);
@@ -809,7 +982,7 @@ mod tests {
     #[test]
     fn fill_usage_empty_input_yields_dense_zeroed_window() {
         let now = ALIGNED_NOW;
-        let out = fill_missing_usage_buckets(&[], now, AnalyticsRange::Last24h);
+        let out = fill_missing_usage_buckets(&[], now, AnalyticsRange::Last24h, 60);
 
         // Same slot count as traffic: 1440 + 1 inclusive.
         assert_eq!(out.len(), 1441);
@@ -837,7 +1010,7 @@ mod tests {
                 usage: 2.0,
             },
         ];
-        let out = fill_missing_usage_buckets(&queried, now, AnalyticsRange::Last24h);
+        let out = fill_missing_usage_buckets(&queried, now, AnalyticsRange::Last24h, 60);
 
         let mid = out
             .iter()
@@ -853,10 +1026,12 @@ mod tests {
 
     #[test]
     fn fill_usage_aligned_boundary_start_and_end() {
-        // Verify first/last bucket are on bucket boundaries even for a non-24h range.
+        // Verify first/last bucket are on bucket boundaries even for a non-24h
+        // range. 7d at hourly resolution = 168 buckets, well under the cap.
         let now = ALIGNED_NOW;
-        let out = fill_missing_usage_buckets(&[], now, AnalyticsRange::Last7d);
-        let bucket_ms = AnalyticsRange::Last7d.bucket_seconds() as i64 * 1000;
+        let bucket_secs = effective_bucket_seconds(AnalyticsRange::Last7d, TimeGranularity::Hourly);
+        let out = fill_missing_usage_buckets(&[], now, AnalyticsRange::Last7d, bucket_secs);
+        let bucket_ms = bucket_secs as i64 * 1000;
         assert_eq!(out.first().unwrap().ts_unix_ms % bucket_ms, 0);
         assert_eq!(out.last().unwrap().ts_unix_ms % bucket_ms, 0);
         assert_eq!(

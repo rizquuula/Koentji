@@ -25,7 +25,7 @@ function renderUsageChart(dataJson) {
         const ctx = document.getElementById('usage-chart');
         if (!ctx) return;
 
-        const labels = formatTrafficLabels(data.ts, data.rangeIs24h);
+        const labels = formatTrafficLabels(data.ts, data.rangeIs24h, data.bucketSecs);
         if (usageChart) usageChart.destroy();
         usageChart = new Chart(ctx, {
             type: 'line',
@@ -72,16 +72,24 @@ function renderAnalyticsCharts(dataJson) {
 
 // Format the raw unix-ms bucket timestamps into axis labels in the *browser's*
 // local timezone. `new Date(ms)` and the `toLocale*` formatters both resolve to
-// the viewer's zone, so the axis follows whoever is looking at it. 24h windows
-// show a bare "HH:MM"; wider windows prefix the day so a label isn't ambiguous
-// across midnight. The traffic and latency charts share one label array (same
-// bucket grid), so this is computed once per render.
-function formatTrafficLabels(tsList, rangeIs24h) {
+// the viewer's zone, so the axis follows whoever is looking at it. The label
+// shape follows the *bucket* size, not just the window:
+//   - daily or coarser buckets (>= 1 day): a bare date "DD Mon" — the time of
+//     day is meaningless once a bucket spans a whole day or more.
+//   - sub-daily buckets on the 24h window: a bare "HH:MM".
+//   - sub-daily buckets on a wider window: "DD Mon HH:MM" so a time isn't
+//     ambiguous across midnight.
+// `bucketSecs` is the *effective* bucket size after server-side clamping, so the
+// labels always match what was actually rendered. The traffic and latency
+// charts share one label array (same bucket grid), so this runs once per render.
+function formatTrafficLabels(tsList, rangeIs24h, bucketSecs) {
     if (!Array.isArray(tsList)) return [];
     const timeOpts = { hour: '2-digit', minute: '2-digit', hour12: false };
     const dayOpts = { day: '2-digit', month: 'short' };
+    const dailyOrCoarser = typeof bucketSecs === 'number' && bucketSecs >= 86400;
     return tsList.map(function(ms) {
         const d = new Date(ms);
+        if (dailyOrCoarser) return d.toLocaleDateString([], dayOpts);
         const time = d.toLocaleTimeString([], timeOpts);
         if (rangeIs24h) return time;
         return d.toLocaleDateString([], dayOpts) + ' ' + time;
@@ -89,7 +97,7 @@ function formatTrafficLabels(tsList, rangeIs24h) {
 }
 
 function renderAnalyticsChartsImpl(data) {
-    const trafficLabels = formatTrafficLabels(data.trafficTs, data.rangeIs24h);
+    const trafficLabels = formatTrafficLabels(data.trafficTs, data.rangeIs24h, data.bucketSecs);
 
     // Traffic: allowed + denied stacked as an area chart. The stack top
     // (allowed + denied) is the total request volume per bucket.
