@@ -32,7 +32,7 @@ pub fn App() -> impl IntoView {
         // `integrity` on a cross-origin script.
         <Script
             src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
-            integrity="sha384-Y/e9rvkW0vDX3BQwmlCdR5GkIEDEISIXxv8lV/dgsw5AbqqRZUwFRmjMHIu/sFFf"
+            integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4"
             crossorigin="anonymous"
         />
         <Script src="/assets/js/charts.js"/>
