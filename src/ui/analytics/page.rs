@@ -1,6 +1,6 @@
 use crate::server::analytics_service::{
-    effective_bucket_seconds, effective_granularity, get_analytics_snapshot, get_rate_limit_usage,
-    AnalyticsRange, AnalyticsSnapshot, RateLimitUsageSnapshot, TimeGranularity,
+    effective_granularity, get_analytics_snapshot, get_rate_limit_usage, AnalyticsRange,
+    AnalyticsSnapshot, RateLimitUsageSnapshot, TimeGranularity,
 };
 use crate::ui::analytics::panels::{
     render_analytics_charts, render_usage_chart, DenialReasonsPanel, LatencyPanel, TrafficPanel,
@@ -64,8 +64,7 @@ pub fn AnalyticsPage() -> impl IntoView {
     Effect::new(move || {
         if let Some(Ok(snap)) = snapshot.get() {
             let r = range.get_untracked();
-            let bucket_secs = effective_bucket_seconds(r, granularity.get_untracked());
-            render_analytics_charts(&snap, r == AnalyticsRange::Last24h, bucket_secs);
+            render_analytics_charts(&snap, r == AnalyticsRange::Last24h);
             last_good.set(Some((r, snap)));
         }
     });
@@ -74,8 +73,7 @@ pub fn AnalyticsPage() -> impl IntoView {
     Effect::new(move || {
         if let Some(Ok(snap)) = usage_resource.get() {
             let r = range.get_untracked();
-            let bucket_secs = effective_bucket_seconds(r, granularity.get_untracked());
-            render_usage_chart(&snap, r == AnalyticsRange::Last24h, bucket_secs);
+            render_usage_chart(&snap, r == AnalyticsRange::Last24h);
             last_good_usage.set(Some(snap));
         }
     });
@@ -110,8 +108,11 @@ pub fn AnalyticsPage() -> impl IntoView {
             },
             std::time::Duration::from_secs(secs),
         );
-        if let Ok(handle) = handle {
-            timer.set_value(Some(handle));
+        match handle {
+            Ok(handle) => timer.set_value(Some(handle)),
+            // Don't fail silently — a dead timer would leave the dropdown
+            // showing a live cadence while nothing refetches.
+            Err(e) => leptos::logging::warn!("analytics auto-refresh timer failed to start: {e:?}"),
         }
     });
     on_cleanup(clear_timer);

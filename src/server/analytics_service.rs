@@ -110,6 +110,8 @@ pub fn effective_bucket_seconds(range: AnalyticsRange, granularity: TimeGranular
     // cap. If none fits (absurdly wide window), the coarsest step wins.
     let mut chosen = *GRANULARITY_STEPS.last().expect("ladder is non-empty");
     for &step in GRANULARITY_STEPS.iter() {
+        // Skip steps strictly finer than the requested granularity — we only
+        // ever coerce coarser, never finer.
         if step < requested {
             continue;
         }
@@ -127,12 +129,16 @@ pub fn effective_granularity(
     range: AnalyticsRange,
     granularity: TimeGranularity,
 ) -> TimeGranularity {
+    // Exhaustive over `GRANULARITY_STEPS` so adding a step without a matching
+    // arm here is a loud `unreachable!` at runtime rather than a silently wrong
+    // "Monthly" label.
     match effective_bucket_seconds(range, granularity) {
         60 => TimeGranularity::Minutely,
         3_600 => TimeGranularity::Hourly,
         86_400 => TimeGranularity::Daily,
         604_800 => TimeGranularity::Weekly,
-        _ => TimeGranularity::Monthly,
+        2_592_000 => TimeGranularity::Monthly,
+        other => unreachable!("effective_bucket_seconds returned a non-ladder value: {other}"),
     }
 }
 
@@ -211,6 +217,10 @@ pub struct UsageKeyOption {
 pub struct RateLimitUsageSnapshot {
     pub buckets: Vec<UsageBucket>,
     pub available_keys: Vec<UsageKeyOption>,
+    /// Effective bucket size these buckets are aligned to (after clamping).
+    /// Carried on the snapshot so the chart labels itself from the same value
+    /// the data was bucketed with, rather than recomputing it client-side.
+    pub bucket_secs: u32,
 }
 
 /// Window-wide rollup for the summary stat cards. `p95_us` is `Option`
@@ -275,6 +285,10 @@ pub struct AnalyticsSnapshot {
     pub busiest_keys: Vec<KeyTrafficRow>,
     pub quota_pressure: Vec<QuotaPressureRow>,
     pub summary: WindowSummary,
+    /// Effective bucket size the traffic/latency grids are aligned to (after
+    /// clamping). Lets the chart format its x-axis from the same value the data
+    /// was bucketed with — no client-side recompute that could drift.
+    pub bucket_secs: u32,
 }
 
 /// Fill `bucket_seconds`-aligned gaps so sparse traffic doesn't render a
@@ -512,6 +526,7 @@ pub async fn get_rate_limit_usage(
     Ok(RateLimitUsageSnapshot {
         buckets,
         available_keys,
+        bucket_secs,
     })
 }
 
@@ -741,6 +756,7 @@ pub async fn get_analytics_snapshot(
         busiest_keys,
         quota_pressure,
         summary,
+        bucket_secs,
     })
 }
 
