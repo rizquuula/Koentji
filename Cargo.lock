@@ -1809,7 +1809,7 @@ dependencies = [
 
 [[package]]
 name = "koentji"
-version = "0.2.13"
+version = "0.2.14"
 dependencies = [
  "actix-files",
  "actix-session",
