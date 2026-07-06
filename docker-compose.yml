@@ -72,6 +72,12 @@ services:
     # the primary cap — the host has only ~1.9 GiB shared across all services.
     mem_limit: 1200m
     mem_reservation: 512m
+    # Lets ClickHouse set its NUMA memory policy at boot. Without CAP_SYS_NICE
+    # the get_mempolicy/set_mempolicy syscalls return EPERM under Docker's
+    # default profile, logging a harmless "get_mempolicy: Operation not
+    # permitted" warning. Cosmetic — silences the noise.
+    cap_add:
+      - SYS_NICE
     ulimits:
       nofile:
         soft: 262144
