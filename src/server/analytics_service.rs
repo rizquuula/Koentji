@@ -641,16 +641,17 @@ pub async fn get_analytics_snapshot(
         .bind(range_secs)
         .fetch_all::<SummaryRow>();
 
-    let (traffic_rows, latency_rows, denial_rows, busiest_rows, quota_rows, summary_rows) =
-        tokio::try_join!(
-            traffic_fut,
-            latency_fut,
-            denial_fut,
-            busiest_fut,
-            quota_fut,
-            summary_fut
-        )
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+    // Run the panel queries in two sequential batches rather than one 6-wide
+    // fan-out. The ClickHouse server is capped at 1 GiB total (low-mem.xml), so
+    // limiting how many `AggregatingTransform`s run at once keeps peak memory
+    // bounded. Batch 1 is the lighter counters; batch 2 holds the heavies
+    // (two `quantile`, `uniqExact`, and the high-cardinality `GROUP BY auth_key`).
+    let (traffic_rows, denial_rows, quota_rows) =
+        tokio::try_join!(traffic_fut, denial_fut, quota_fut)
+            .map_err(|e| ServerFnError::new(e.to_string()))?;
+    let (latency_rows, busiest_rows, summary_rows) =
+        tokio::try_join!(latency_fut, busiest_fut, summary_fut)
+            .map_err(|e| ServerFnError::new(e.to_string()))?;
 
     let queried_traffic: Vec<TrafficBucket> = traffic_rows
         .into_iter()

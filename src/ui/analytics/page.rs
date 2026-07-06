@@ -13,7 +13,10 @@ use crate::ui::shell::layout::Layout;
 use leptos::prelude::*;
 
 /// Default auto-refresh cadence, in seconds — the dropdown's initial pick.
-const DEFAULT_REFRESH_SECS: u64 = 30;
+/// 60s (the slowest live option) rather than a tight poll: each tick re-runs
+/// the full analytics query batch against a memory-capped ClickHouse, so a
+/// gentler default keeps sustained load low. Admins can pick a faster cadence.
+const DEFAULT_REFRESH_SECS: u64 = 60;
 
 /// Auto-refresh dropdown options as `(label, seconds)`. `0` is the "Off"
 /// sentinel — a `0`-second interval means "don't poll", so the page freezes on
@@ -35,7 +38,10 @@ fn parse_key_id(s: String) -> Option<i64> {
 #[component]
 pub fn AnalyticsPage() -> impl IntoView {
     let range = RwSignal::new(AnalyticsRange::Last24h);
-    let granularity = RwSignal::new(TimeGranularity::Minutely);
+    // Hourly (24 buckets over 24h) rather than Minutely (1440): a lighter first
+    // paint against the memory-capped ClickHouse. The bucket selector still
+    // offers Minutely for a finer view on demand.
+    let granularity = RwSignal::new(TimeGranularity::Hourly);
     let selected_key = RwSignal::new(String::new());
     // `0` is the "Off" sentinel — see `REFRESH_OPTIONS`.
     let refresh_secs = RwSignal::new(DEFAULT_REFRESH_SECS);
@@ -50,7 +56,7 @@ pub fn AnalyticsPage() -> impl IntoView {
     );
 
     // Last-good snapshot, paired with the range it was fetched under. Panels
-    // render from this rather than directly from the Resource so a 30s
+    // render from this rather than directly from the Resource so the periodic
     // auto-refetch (which re-arms Suspense's fallback) doesn't blank the page
     // on every tick — Suspense only gates the very first load, while this
     // signal keeps the previous data on screen until the new one arrives.

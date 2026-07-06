@@ -64,6 +64,14 @@ services:
     volumes:
       - chdata:/var/lib/clickhouse
       - ./clickhouse/config.d/low-mem.xml:/etc/clickhouse-server/config.d/low-mem.xml:ro
+    # Give ClickHouse a cgroup memory limit so its MemoryWorker can read the
+    # bound and periodically resync the global memory tracker to real RSS.
+    # Without this the tracker drifts (a killed query leaks it) and eventually
+    # every query trips the OvercommitTracker even at ~250 MiB real usage. Kept
+    # just above the internal 1 GiB max_server_memory_usage as a backstop, not
+    # the primary cap — the host has only ~1.9 GiB shared across all services.
+    mem_limit: 1200m
+    mem_reservation: 512m
     ulimits:
       nofile:
         soft: 262144

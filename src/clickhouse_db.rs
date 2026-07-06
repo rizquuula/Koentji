@@ -15,6 +15,15 @@ pub async fn create_client() -> clickhouse::Client {
         .with_user(&user)
         .with_password(&password)
         .with_database(&database)
+        // Bound every query the app sends. On a 1 GiB-capped ClickHouse (see
+        // clickhouse/config.d/low-mem.xml) a single unbounded aggregation can
+        // trip the server-wide OvercommitTracker, and a killed query can leak
+        // the global memory counter. Cap per-query memory and spill GROUP BY
+        // to disk instead of dying at the ceiling. These are harmless for the
+        // sink's INSERTs (no aggregation, well under the cap).
+        .with_option("max_threads", "2")
+        .with_option("max_memory_usage", "300000000") // ~300 MiB / query
+        .with_option("max_bytes_before_external_group_by", "150000000") // spill GROUP BY
 }
 
 fn parse_clickhouse_url(url: &str) -> (String, String, String, String) {
