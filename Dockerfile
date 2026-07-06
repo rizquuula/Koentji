@@ -1,6 +1,15 @@
 FROM rust:1.91-bookworm AS builder
 
-RUN cargo install cargo-binstall --locked
+# Fetch cargo-binstall's own prebuilt binary instead of compiling it.
+# `cargo install cargo-binstall` builds the latest release from source,
+# which couples us to whatever rustc *that* release demands — v1.20.1
+# pulls vergen 10 and needs rustc 1.95, so it fails to compile on this
+# 1.91 image. The prebuilt musl binary has no such coupling (and is far
+# faster). Explicit release tarball over the upstream `curl | bash`
+# installer, matching the NodeSource setup below. amd64-only, in step
+# with the single-arch image the CI builds.
+RUN curl -fsSL https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz \
+        | tar -xzf - -C "${CARGO_HOME:-/usr/local/cargo}/bin"
 RUN cargo binstall cargo-leptos --locked --no-confirm
 RUN rustup target add wasm32-unknown-unknown
 
