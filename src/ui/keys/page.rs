@@ -98,13 +98,32 @@ pub fn KeysPage() -> impl IntoView {
         });
         let handle = set_timeout_with_handle(
             move || {
-                set_search.set(if val.is_empty() { None } else { Some(val) });
-                set_page.set(None);
+                let next = if val.is_empty() { None } else { Some(val) };
+                // Only rewrite the URL and reset pagination on a genuine user
+                // edit. A programmatic sync from the URL (back/forward,
+                // deep-link) already matches `search_q`, so this becomes a
+                // no-op and the restored page survives.
+                if next != search_q.get_untracked() {
+                    set_search.set(next);
+                    set_page.set(None);
+                }
             },
             std::time::Duration::from_millis(300),
         );
         if let Ok(handle) = handle {
             pending_debounce.set_value(Some(handle));
+        }
+    });
+
+    // Keep the visible search box in step with the URL on browser back/forward.
+    // Guard on inequality so this doesn't fight the debounce effect above: while
+    // typing, search_input is set first, so by the time the URL catches up the
+    // values already match and this is a no-op; on back/forward the URL differs
+    // and the box repaints.
+    Effect::new(move |_| {
+        let from_url = search.get();
+        if search_input.get_untracked() != from_url {
+            search_input.set(from_url);
         }
     });
 
@@ -194,13 +213,20 @@ pub fn KeysPage() -> impl IntoView {
                 on_close=Callback::new(move |_| show_create_modal.set(false))
                 title="Create New API Key"
             >
-                <KeyForm
-                    on_submit=Callback::new(move |_| {
-                        show_create_modal.set(false);
-                        refresh_counter.update(|c| *c += 1);
-                    })
-                    on_cancel=Callback::new(move |_| show_create_modal.set(false))
-                />
+                // Remount a fresh KeyForm each open so its signals re-seed
+                // blank — Modal materializes children once, so a direct child
+                // would keep stale input after the first create.
+                {move || show_create_modal.get().then(|| {
+                    view! {
+                        <KeyForm
+                            on_submit=Callback::new(move |_| {
+                                show_create_modal.set(false);
+                                refresh_counter.update(|c| *c += 1);
+                            })
+                            on_cancel=Callback::new(move |_| show_create_modal.set(false))
+                        />
+                    }
+                })}
             </Modal>
 
             // Edit Modal

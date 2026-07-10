@@ -138,15 +138,7 @@ pub async fn create_key(req: CreateKeyRequest) -> Result<AuthenticationKey, Serv
             )
         };
 
-    let expired_at: Option<chrono::DateTime<chrono::Utc>> = req.expired_at.as_ref().and_then(|s| {
-        if s.is_empty() {
-            None
-        } else {
-            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M")
-                .ok()
-                .map(|ndt| ndt.and_utc())
-        }
-    });
+    let expired_at = req.expired_at.as_deref().and_then(parse_expired_at);
 
     let key = AuthKey::parse(&key_string).map_err(|e| ServerFnError::new(e.to_string()))?;
     let device = DeviceId::parse(&req.device_id).map_err(|e| ServerFnError::new(e.to_string()))?;
@@ -237,15 +229,7 @@ pub async fn update_key(
         (req.subscription.clone(), None)
     };
 
-    let expired_at: Option<chrono::DateTime<chrono::Utc>> = req.expired_at.as_ref().and_then(|s| {
-        if s.is_empty() {
-            None
-        } else {
-            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M")
-                .ok()
-                .map(|ndt| ndt.and_utc())
-        }
-    });
+    let expired_at = req.expired_at.as_deref().and_then(parse_expired_at);
 
     let updated = sqlx::query_as::<_, AuthenticationKey>(
         r#"UPDATE authentication_keys SET
@@ -374,4 +358,51 @@ fn generate_api_key() -> String {
     rand::thread_rng().fill_bytes(&mut bytes);
     let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
     format!("klab_{}", token)
+}
+
+/// Parse the `expired_at` string coming from the admin form. The client now
+/// sends an offset-aware RFC3339 instant (already converted to UTC); older
+/// callers may still send a naive `%Y-%m-%dT%H:%M` — treat that as UTC.
+#[cfg(feature = "ssr")]
+fn parse_expired_at(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    if s.is_empty() {
+        return None;
+    }
+    chrono::DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .ok()
+        .or_else(|| {
+            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M")
+                .ok()
+                .map(|ndt| ndt.and_utc())
+        })
+}
+
+#[cfg(all(test, feature = "ssr"))]
+mod tests {
+    use super::parse_expired_at;
+    use chrono::TimeZone;
+
+    #[test]
+    fn parse_expired_at_reads_rfc3339_offset_to_utc() {
+        // 2026-07-10 09:00 at UTC+7 → 02:00 UTC.
+        let expected = chrono::Utc.with_ymd_and_hms(2026, 7, 10, 2, 0, 0).unwrap();
+        assert_eq!(
+            parse_expired_at("2026-07-10T09:00:00+07:00"),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn parse_expired_at_falls_back_to_naive_as_utc() {
+        // Legacy naive input is interpreted as UTC.
+        let expected = chrono::Utc.with_ymd_and_hms(2026, 7, 10, 9, 0, 0).unwrap();
+        assert_eq!(parse_expired_at("2026-07-10T09:00"), Some(expected));
+    }
+
+    #[test]
+    fn parse_expired_at_rejects_empty_and_garbage() {
+        assert_eq!(parse_expired_at(""), None);
+        assert_eq!(parse_expired_at("garbage"), None);
+    }
 }

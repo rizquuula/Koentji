@@ -47,6 +47,14 @@ pub fn to_local(dt: DateTime<Utc>, offset_minutes: i32) -> NaiveDateTime {
     (dt + Duration::minutes(offset_minutes as i64)).naive_utc()
 }
 
+/// Parse a `datetime-local` wall-clock string (`%Y-%m-%dT%H:%M`) entered in the
+/// viewer's local zone and shift it back to the UTC instant. Inverse of `to_local`.
+/// Returns None on empty/unparseable input.
+pub fn from_local(local_str: &str, offset_minutes: i32) -> Option<DateTime<Utc>> {
+    let ndt = NaiveDateTime::parse_from_str(local_str, "%Y-%m-%dT%H:%M").ok()?;
+    Some((ndt - Duration::minutes(offset_minutes as i64)).and_utc())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,5 +86,29 @@ mod tests {
     fn to_local_zero_offset_is_utc() {
         let utc = Utc.with_ymd_and_hms(2026, 6, 13, 12, 0, 0).unwrap();
         assert_eq!(to_local(utc, 0), utc.naive_utc());
+    }
+
+    #[test]
+    fn from_local_round_trips_with_to_local() {
+        // For each offset, formatting a UTC instant into local wall-clock and
+        // parsing it back must recover the original instant.
+        for offset in [420, -300, 0] {
+            let utc = Utc.with_ymd_and_hms(2026, 7, 10, 2, 0, 0).unwrap();
+            let local = to_local(utc, offset).format("%Y-%m-%dT%H:%M").to_string();
+            assert_eq!(from_local(&local, offset), Some(utc), "offset {offset}");
+        }
+    }
+
+    #[test]
+    fn from_local_returns_none_on_bad_input() {
+        assert_eq!(from_local("", 420), None);
+        assert_eq!(from_local("garbage", 420), None);
+    }
+
+    #[test]
+    fn from_local_shifts_local_back_to_utc() {
+        // 2026-07-10 09:00 entered at UTC+7 → 2026-07-10 02:00 UTC.
+        let expected = Utc.with_ymd_and_hms(2026, 7, 10, 2, 0, 0).unwrap();
+        assert_eq!(from_local("2026-07-10T09:00", 420), Some(expected));
     }
 }

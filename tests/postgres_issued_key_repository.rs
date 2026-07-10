@@ -679,6 +679,35 @@ async fn extend_expiration_sets_and_clears_expiry() {
 }
 
 #[tokio::test]
+async fn expired_at_round_trips_the_exact_utc_instant() {
+    // The admin form now sends an offset-aware instant already normalized to
+    // UTC; guard that a specific `expired_at` stored on a key reads back
+    // byte-for-byte, so a local-zone entry lands on the intended instant.
+    use chrono::TimeZone;
+
+    let pool = fresh_pool().await;
+    let intended = Utc.with_ymd_and_hms(2026, 7, 10, 2, 0, 0).unwrap();
+    let inserted = a_key()
+        .with_key("klab_expired_roundtrip")
+        .with_device("dev-expired-roundtrip")
+        .expires_at(intended)
+        .insert(&pool)
+        .await;
+
+    let (stored,): (Option<DateTime<Utc>>,) =
+        sqlx::query_as("SELECT expired_at FROM authentication_keys WHERE id = $1")
+            .bind(inserted.id)
+            .fetch_one(&pool)
+            .await
+            .expect("row exists");
+    assert_eq!(
+        stored.expect("expired_at is set"),
+        intended,
+        "stored expiry must equal the intended UTC instant exactly",
+    );
+}
+
+#[tokio::test]
 async fn extend_expiration_returns_none_for_an_unknown_id() {
     let pool = fresh_pool().await;
     let r = repo(pool.clone());

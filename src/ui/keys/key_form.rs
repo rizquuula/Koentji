@@ -13,6 +13,11 @@ pub fn KeyForm(
     let is_editing = editing.is_some();
     let key = editing.clone();
 
+    // The datetime-local field is entered/displayed in the viewer's local zone.
+    // KeyForm only mounts on client interaction (after the tz Effect has set the
+    // real offset), so an untracked read at construction is correct here.
+    let tz_offset = crate::ui::tz::use_tz_offset();
+
     let subs_resource = Resource::new(|| (), |_| list_subscription_types());
 
     let device_id = RwSignal::new(
@@ -43,7 +48,13 @@ pub fn KeyForm(
     );
     let expired_at = RwSignal::new(
         key.as_ref()
-            .and_then(|k| k.expired_at.map(|e| e.format("%Y-%m-%dT%H:%M").to_string()))
+            .and_then(|k| {
+                k.expired_at.map(|e| {
+                    crate::ui::tz::to_local(e, tz_offset.get_untracked())
+                        .format("%Y-%m-%dT%H:%M")
+                        .to_string()
+                })
+            })
             .unwrap_or_default(),
     );
     let submitting = RwSignal::new(false);
@@ -60,7 +71,15 @@ pub fn KeyForm(
         let email = email.get();
         let subscription_type_id_val = subscription_type_id.get();
         let rate_limit = rate_limit.get();
+        // Convert the typed local wall-clock string back to a UTC RFC3339
+        // instant before it goes on the wire; the server accepts both.
         let expired_at = expired_at.get();
+        let expired_at = if expired_at.is_empty() {
+            None
+        } else {
+            crate::ui::tz::from_local(&expired_at, tz_offset.get_untracked())
+                .map(|dt| dt.to_rfc3339())
+        };
 
         let st_id: Option<i32> = subscription_type_id_val.parse().ok();
 
@@ -77,11 +96,7 @@ pub fn KeyForm(
                     subscription: None, // derived from subscription_type_id on server
                     subscription_type_id: st_id,
                     rate_limit_daily: rate_limit.parse().ok(),
-                    expired_at: if expired_at.is_empty() {
-                        None
-                    } else {
-                        Some(expired_at)
-                    },
+                    expired_at: expired_at.clone(),
                 };
                 crate::server::key_service::update_key(editing_id.unwrap(), req)
                     .await
@@ -98,11 +113,7 @@ pub fn KeyForm(
                     subscription: None, // derived from subscription_type_id on server
                     subscription_type_id: st_id,
                     rate_limit_daily: rate_limit.parse().ok(),
-                    expired_at: if expired_at.is_empty() {
-                        None
-                    } else {
-                        Some(expired_at)
-                    },
+                    expired_at,
                 };
                 crate::server::key_service::create_key(req)
                     .await

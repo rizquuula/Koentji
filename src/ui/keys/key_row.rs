@@ -23,6 +23,9 @@ pub fn KeyRow(
     #[prop(into)] on_reset: Callback<i32>,
 ) -> impl IntoView {
     let key_id = key.id;
+    // Render the "created" timestamp in the viewer's local zone, not UTC.
+    let offset = crate::ui::tz::use_tz_offset();
+    let created_at = key.created_at;
     let masked = key.masked_key();
     let status = key.status().to_string();
     let rate_pct = key.rate_limit_percentage();
@@ -85,14 +88,30 @@ pub fn KeyRow(
         });
     };
 
+    // Flash the checkmark for 3s after a successful copy.
+    let flash_copied = move || {
+        key_copied.set(true);
+        set_timeout(
+            move || key_copied.set(false),
+            std::time::Duration::from_secs(3),
+        );
+    };
+
     let handle_copy = move |_| {
+        // Copy works whether or not the key is visually revealed. If it's
+        // already in memory, copy it directly; otherwise fetch it on demand
+        // without flipping the on-screen reveal (copy must not unmask it).
         if let Some(k) = revealed_key.get() {
             copy_to_clipboard(&k);
-            key_copied.set(true);
-            set_timeout(
-                move || key_copied.set(false),
-                std::time::Duration::from_secs(3),
-            );
+            flash_copied();
+        } else {
+            let key_id = key_id;
+            leptos::task::spawn_local(async move {
+                if let Ok(full_key) = crate::server::key_service::reveal_key(key_id).await {
+                    copy_to_clipboard(&full_key);
+                    flash_copied();
+                }
+            });
         }
     };
 
@@ -223,7 +242,7 @@ pub fn KeyRow(
                 </span>
             </td>
             <td class="px-4 py-3 text-sm text-gray-500">
-                {key.created_at.format("%Y-%m-%d %H:%M").to_string()}
+                {move || crate::ui::tz::to_local(created_at, offset.get()).format("%Y-%m-%d %H:%M").to_string()}
             </td>
             <td class="px-4 py-3">
                 <div class="flex items-center space-x-2">
