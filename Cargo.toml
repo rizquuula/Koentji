@@ -95,8 +95,8 @@ incremental = false
 [profile.wasm-release]
 inherits = "release"
 opt-level = 'z'
-lto = true
-codegen-units = 1
+lto = "thin"
+codegen-units = 2
 panic = "abort"
 
 [package.metadata.leptos]
