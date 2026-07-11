@@ -1,4 +1,4 @@
-.PHONY: help dev run build version fmt fmt-check clippy test test-rust test-e2e test-e2e-install check clean migrate db-create db-reset docker-up docker-up-local docker-down docker-up-db docker-logs docker-pull tailwind refactor-status refactor-next hash-admin-password
+.PHONY: help dev run build version fmt fmt-check clippy test test-rust test-e2e test-e2e-install check clean migrate db-create db-reset docker-up docker-up-local docker-down docker-up-db docker-logs docker-pull docker-update-app tailwind refactor-status refactor-next hash-admin-password
 
 -include .env
 export
@@ -105,6 +105,10 @@ docker-logs: ## Tail logs for all containers (or pass s=service to filter)
 
 docker-pull: ## Pull latest Docker images
 	docker compose pull
+
+docker-update-app: ## Pull the latest app image and recreate only the app container (override tag with APP_IMAGE=...)
+	docker compose pull app
+	docker compose up -d app
 
 ## Admin access
 hash-admin-password: ## Print an argon2id PHC hash for ADMIN_PASSWORD_HASH (pass PASSWORD=...)
