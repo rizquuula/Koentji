@@ -13,10 +13,11 @@ use crate::ui::shell::layout::Layout;
 use leptos::prelude::*;
 
 /// Default auto-refresh cadence, in seconds — the dropdown's initial pick.
-/// 60s (the slowest live option) rather than a tight poll: each tick re-runs
-/// the full analytics query batch against a memory-capped ClickHouse, so a
-/// gentler default keeps sustained load low. Admins can pick a faster cadence.
-const DEFAULT_REFRESH_SECS: u64 = 60;
+/// `0` is the "Off" sentinel: the page loads frozen on its first snapshot and
+/// polls nothing until the admin picks a live cadence. Each tick would re-run
+/// the full analytics query batch against a memory-capped ClickHouse, so
+/// defaulting to Off keeps idle dashboards from generating sustained load.
+const DEFAULT_REFRESH_SECS: u64 = 0;
 
 /// Auto-refresh dropdown options as `(label, seconds)`. `0` is the "Off"
 /// sentinel — a `0`-second interval means "don't poll", so the page freezes on
@@ -37,11 +38,11 @@ fn parse_key_id(s: String) -> Option<i64> {
 
 #[component]
 pub fn AnalyticsPage() -> impl IntoView {
-    let range = RwSignal::new(AnalyticsRange::Last24h);
-    // Hourly (24 buckets over 24h) rather than Minutely (1440): a lighter first
+    let range = RwSignal::new(AnalyticsRange::Last30d);
+    // Daily (30 buckets over 30d) rather than a finer bucket: a lighter first
     // paint against the memory-capped ClickHouse. The bucket selector still
-    // offers Minutely for a finer view on demand.
-    let granularity = RwSignal::new(TimeGranularity::Hourly);
+    // offers Hourly/Minutely for a finer view on demand.
+    let granularity = RwSignal::new(TimeGranularity::Daily);
     let selected_key = RwSignal::new(String::new());
     // `0` is the "Off" sentinel — see `REFRESH_OPTIONS`.
     let refresh_secs = RwSignal::new(DEFAULT_REFRESH_SECS);
