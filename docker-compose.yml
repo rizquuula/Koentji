@@ -60,7 +60,7 @@ services:
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-koentji}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     ports:
-      - "127.0.0.1:${CLICKHOUSE_PORT:-8123}:8123"
+      - "0.0.0.0:${CLICKHOUSE_PORT:-8123}:8123"
     volumes:
       - ./chdata:/var/lib/clickhouse
       - ./clickhouse/config.d/low-mem.xml:/etc/clickhouse-server/config.d/low-mem.xml:ro
