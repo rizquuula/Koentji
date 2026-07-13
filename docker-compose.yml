@@ -62,7 +62,7 @@ services:
     ports:
       - "127.0.0.1:${CLICKHOUSE_PORT:-8123}:8123"
     volumes:
-      - chdata:/var/lib/clickhouse
+      - ./chdata:/var/lib/clickhouse
       - ./clickhouse/config.d/low-mem.xml:/etc/clickhouse-server/config.d/low-mem.xml:ro
     # Give ClickHouse a cgroup memory limit so its MemoryWorker can read the
     # bound and periodically resync the global memory tracker to real RSS.
