@@ -1,6 +1,7 @@
 use crate::models::AuthenticationKey;
 use crate::server::key_service::{list_keys, reset_rate_limit, revoke_key};
 use crate::ui::design::modal::{ConfirmModal, Modal};
+use crate::ui::design::toast::use_toast;
 use crate::ui::keys::key_form::KeyForm;
 use crate::ui::keys::key_table::KeyTable;
 use crate::ui::shell::layout::Layout;
@@ -25,6 +26,7 @@ pub fn KeysPage() -> impl IntoView {
 
     let show_create_modal = RwSignal::new(false);
     let editing_key = RwSignal::new(None::<AuthenticationKey>);
+    let toast = use_toast();
 
     let keys_resource = Resource::new(
         move || {
@@ -60,8 +62,9 @@ pub fn KeysPage() -> impl IntoView {
         if let Some(id) = confirm_delete_id.get_untracked() {
             confirm_delete_id.set(None);
             leptos::task::spawn_local(async move {
-                if let Ok(()) = revoke_key(id).await {
-                    refresh_counter.update(|c| *c += 1);
+                match revoke_key(id).await {
+                    Ok(()) => refresh_counter.update(|c| *c += 1),
+                    Err(e) => toast.error(&format!("Failed to revoke key: {e}")),
                 }
             });
         }
@@ -71,8 +74,9 @@ pub fn KeysPage() -> impl IntoView {
         if let Some(id) = confirm_reset_id.get_untracked() {
             confirm_reset_id.set(None);
             leptos::task::spawn_local(async move {
-                if let Ok(()) = reset_rate_limit(id).await {
-                    refresh_counter.update(|c| *c += 1);
+                match reset_rate_limit(id).await {
+                    Ok(()) => refresh_counter.update(|c| *c += 1),
+                    Err(e) => toast.error(&format!("Failed to reset rate limit: {e}")),
                 }
             });
         }

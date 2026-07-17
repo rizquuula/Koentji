@@ -44,7 +44,7 @@ pub fn KeyTable(
                         </tr>
                     </thead>
                     <tbody>
-                        <For each=move || rows.get() key=|k| k.id let:key>
+                        <For each=move || rows.get() key=|k| (k.id, k.row_version()) let:key>
                             <KeyRow
                                 key=key
                                 on_edit=on_edit

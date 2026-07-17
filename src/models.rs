@@ -76,6 +76,31 @@ impl AuthenticationKey {
         (used / self.rate_limit_daily) * 100.0
     }
 
+    /// A content hash over every field the key table renders, used as
+    /// the second half of the `<For>` remount key so a row with the same
+    /// `id` but changed content is torn down and rebuilt (its child
+    /// signals are captured at construction time and are otherwise
+    /// non-reactive). `f64` fields hash via `.to_bits()` — the exact
+    /// stored value, not an epsilon compare. Deterministic across the
+    /// SSR (native) and hydrate (wasm) builds because `DefaultHasher` is
+    /// seeded identically and both compute from the same resource data.
+    pub fn row_version(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.id.hash(&mut hasher);
+        self.key.hash(&mut hasher);
+        self.device_id.hash(&mut hasher);
+        self.subscription.hash(&mut hasher);
+        self.rate_limit_daily.to_bits().hash(&mut hasher);
+        self.rate_limit_remaining.to_bits().hash(&mut hasher);
+        self.username.hash(&mut hasher);
+        self.email.hash(&mut hasher);
+        self.expired_at.hash(&mut hasher);
+        self.deleted_at.hash(&mut hasher);
+        self.updated_at.hash(&mut hasher);
+        hasher.finish()
+    }
+
     pub fn masked_key(&self) -> String {
         if self.key.len() <= 8 {
             return self.key.clone();
