@@ -1,3 +1,4 @@
+use crate::models::DashboardStats;
 use crate::server::insights_service::get_dashboard_insights;
 use crate::server::stats_service::get_dashboard_stats;
 use crate::ui::dashboard::activity_feed::ActivityFeed;
@@ -26,7 +27,16 @@ pub fn DashboardPage() -> impl IntoView {
         move |(r, s, e, tz)| get_dashboard_stats(r, s, e, tz),
     );
 
-    let stats_signal = Signal::derive(move || stats_resource.get().and_then(|r| r.ok()));
+    // Last-good stats so a date-range refetch keeps the current numbers on
+    // screen: StatsCards reads `stats.get().map(...).unwrap_or(0)`, so a pending
+    // `None` would flash every card to 0 even with the children kept mounted.
+    let last_good_stats = RwSignal::new(None::<DashboardStats>);
+    Effect::new(move || {
+        if let Some(Ok(s)) = stats_resource.get() {
+            last_good_stats.set(Some(s));
+        }
+    });
+    let stats_signal = Signal::derive(move || last_good_stats.get());
 
     // Current-state insights ignore the date-range picker, so this resource
     // takes no reactive deps — it loads once and shows the live picture.
@@ -41,14 +51,21 @@ pub fn DashboardPage() -> impl IntoView {
                     <DateRangePicker range=range start_date=start_date end_date=end_date/>
                 </div>
 
-                <Suspense fallback=|| view! {
+                <Transition fallback=|| view! {
                     <div class="flex justify-center py-12">
                         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                     </div>
                 }>
-                    <StatsCards stats=stats_signal/>
-                    <Charts stats=stats_signal/>
-                </Suspense>
+                    {move || stats_resource.get().map(|r| match r {
+                        Ok(_) => view! {
+                            <StatsCards stats=stats_signal/>
+                            <Charts stats=stats_signal/>
+                        }.into_any(),
+                        Err(e) => view! {
+                            <p class="text-sm text-red-600">{format!("Failed to load: {e}")}</p>
+                        }.into_any(),
+                    })}
+                </Transition>
 
                 <Suspense fallback=|| view! {
                     <div class="flex justify-center py-12">
