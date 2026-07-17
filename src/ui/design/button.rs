@@ -29,14 +29,14 @@ fn variant_class(variant: ButtonVariant, full_width: bool) -> &'static str {
     // The cartesian (variant × full_width) is enumerated so Tailwind's JIT
     // scanner finds every concrete class string — `format!` would hide them.
     match (variant, full_width) {
-        (ButtonVariant::Primary, false) => "px-4 py-2 bg-brand-600 text-ink-inverse rounded-control hover:bg-brand-700 transition-colors duration-quick disabled:opacity-50 disabled:cursor-not-allowed font-medium",
-        (ButtonVariant::Primary, true)  => "w-full px-4 py-2 bg-brand-600 text-ink-inverse rounded-control hover:bg-brand-700 focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 transition-colors duration-quick disabled:opacity-50 disabled:cursor-not-allowed font-medium",
-        (ButtonVariant::Secondary, false) => "px-4 py-2 text-ink-body bg-surface-muted hover:bg-surface-border rounded-control transition-colors duration-quick disabled:opacity-50",
-        (ButtonVariant::Secondary, true)  => "w-full px-4 py-2 text-ink-body bg-surface-muted hover:bg-surface-border rounded-control transition-colors duration-quick disabled:opacity-50",
-        (ButtonVariant::Danger, false) => "px-4 py-2 bg-feedback-danger text-ink-inverse hover:bg-red-700 rounded-control transition-colors duration-quick disabled:opacity-50 font-medium",
-        (ButtonVariant::Danger, true)  => "w-full px-4 py-2 bg-feedback-danger text-ink-inverse hover:bg-red-700 rounded-control transition-colors duration-quick disabled:opacity-50 font-medium",
-        (ButtonVariant::Ghost, false) => "px-4 py-2 text-brand-600 hover:text-brand-800 hover:bg-surface-muted rounded-control transition-colors duration-quick disabled:opacity-50",
-        (ButtonVariant::Ghost, true)  => "w-full px-4 py-2 text-brand-600 hover:text-brand-800 hover:bg-surface-muted rounded-control transition-colors duration-quick disabled:opacity-50",
+        (ButtonVariant::Primary, false) => "px-4 py-2 bg-brand-600 text-ink-inverse rounded-control hover:bg-brand-700 transition duration-quick active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-50 disabled:cursor-not-allowed font-medium",
+        (ButtonVariant::Primary, true)  => "w-full px-4 py-2 bg-brand-600 text-ink-inverse rounded-control hover:bg-brand-700 focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 transition duration-quick active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-50 disabled:cursor-not-allowed font-medium",
+        (ButtonVariant::Secondary, false) => "px-4 py-2 text-ink-body bg-surface-muted hover:bg-surface-border rounded-control transition duration-quick active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-50",
+        (ButtonVariant::Secondary, true)  => "w-full px-4 py-2 text-ink-body bg-surface-muted hover:bg-surface-border rounded-control transition duration-quick active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-50",
+        (ButtonVariant::Danger, false) => "px-4 py-2 bg-feedback-danger text-ink-inverse hover:bg-red-700 rounded-control transition duration-quick active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-50 font-medium",
+        (ButtonVariant::Danger, true)  => "w-full px-4 py-2 bg-feedback-danger text-ink-inverse hover:bg-red-700 rounded-control transition duration-quick active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-50 font-medium",
+        (ButtonVariant::Ghost, false) => "px-4 py-2 text-brand-600 hover:text-brand-800 hover:bg-surface-muted rounded-control transition duration-quick active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-50",
+        (ButtonVariant::Ghost, true)  => "w-full px-4 py-2 text-brand-600 hover:text-brand-800 hover:bg-surface-muted rounded-control transition duration-quick active:scale-[0.98] motion-reduce:active:scale-100 disabled:opacity-50",
     }
 }
 
