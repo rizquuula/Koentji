@@ -30,10 +30,14 @@ pub fn KeyRow(
     let status = key.status().to_string();
     let rate_pct = key.rate_limit_percentage();
     let key_clone = key.clone();
-    let revealed_key = RwSignal::new(None::<String>);
+    // The full key is already shipped to the client (`list_keys` serialises it
+    // unredacted; `masked_key()` computes the mask here), so reveal and copy are
+    // purely local — no server round-trip buys any secrecy.
+    let full_key = key.key.clone();
+    let key_revealed = RwSignal::new(false);
 
-    // The device id is non-secret and already on the client, so reveal is a
-    // local visual toggle (no server fetch like the API key needs).
+    // The device id is likewise non-secret and already on the client, so its
+    // reveal is a local visual toggle too.
     let device_id = key.device_id.clone();
     let masked_device = key.masked_device_id();
     let device_revealed = RwSignal::new(false);
@@ -73,20 +77,8 @@ pub fn KeyRow(
         "bg-red-500"
     };
 
-    let handle_reveal = move |_| {
-        // Toggle: if already revealed, hide it (also drops the plaintext key
-        // from memory); otherwise fetch the full key from the server and show.
-        if revealed_key.get().is_some() {
-            revealed_key.set(None);
-            return;
-        }
-        let key_id = key_id;
-        leptos::task::spawn_local(async move {
-            if let Ok(full_key) = crate::server::key_service::reveal_key(key_id).await {
-                revealed_key.set(Some(full_key));
-            }
-        });
-    };
+    // Reveal just flips the on-screen masking; the full key is already local.
+    let handle_reveal = move |_| key_revealed.update(|shown| *shown = !*shown);
 
     // Flash the checkmark for 3s after a successful copy.
     let flash_copied = move || {
@@ -97,21 +89,15 @@ pub fn KeyRow(
         );
     };
 
-    let handle_copy = move |_| {
-        // Copy works whether or not the key is visually revealed. If it's
-        // already in memory, copy it directly; otherwise fetch it on demand
-        // without flipping the on-screen reveal (copy must not unmask it).
-        if let Some(k) = revealed_key.get() {
-            copy_to_clipboard(&k);
+    let handle_copy = {
+        let full_key = full_key.clone();
+        move |_| {
+            // Fully synchronous so the browser's transient user-activation from
+            // the click is still live when the clipboard write fires (an
+            // intervening `await` would expire it and silently drop the write).
+            // Copy never unmasks the on-screen key.
+            copy_to_clipboard(&full_key);
             flash_copied();
-        } else {
-            let key_id = key_id;
-            leptos::task::spawn_local(async move {
-                if let Ok(full_key) = crate::server::key_service::reveal_key(key_id).await {
-                    copy_to_clipboard(&full_key);
-                    flash_copied();
-                }
-            });
         }
     };
 
@@ -137,8 +123,8 @@ pub fn KeyRow(
                 <div class="flex items-center space-x-2">
                     <span class="text-gray-600">
                         {move || {
-                            if let Some(ref full) = revealed_key.get() {
-                                full.clone()
+                            if key_revealed.get() {
+                                full_key.clone()
                             } else {
                                 masked.clone()
                             }

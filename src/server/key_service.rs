@@ -309,24 +309,6 @@ pub async fn delete_key(id: i32) -> Result<(), ServerFnError> {
 }
 
 #[server]
-pub async fn reveal_key(id: i32) -> Result<String, ServerFnError> {
-    super::require_admin().await?;
-
-    use leptos_actix::extract;
-    use sqlx::PgPool;
-
-    let pool = extract::<actix_web::web::Data<PgPool>>().await?;
-
-    let key: String = sqlx::query_scalar("SELECT key FROM authentication_keys WHERE id = $1")
-        .bind(id)
-        .fetch_one(pool.get_ref())
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-
-    Ok(key)
-}
-
-#[server]
 pub async fn reset_rate_limit(id: i32) -> Result<(), ServerFnError> {
     super::require_admin().await?;
 

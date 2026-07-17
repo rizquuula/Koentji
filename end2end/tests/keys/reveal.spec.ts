@@ -23,4 +23,26 @@ test.describe('reveal key', () => {
     await row.getByRole('button', { name: 'Reveal full key' }).click();
     await expect(row).toContainText(KEY);
   });
+
+  test('copy works without revealing first, key stays masked', async ({ page, context, browserName }) => {
+    // Reading the clipboard needs permissions only chromium grants here.
+    test.skip(browserName !== 'chromium', 'clipboard read needs chromium permissions');
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await page.goto('/keys');
+    const row = page.getByRole('row').filter({ hasText: DEVICE });
+    await expect(row).toContainText(/klab_\*+/);
+
+    // Copy without pressing reveal first — the fix makes this a synchronous
+    // clipboard write that keeps the click's user-activation alive.
+    await row.getByRole('button', { name: 'Copy key to clipboard' }).click();
+
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(KEY);
+
+    // Copy must not unmask the on-screen key.
+    await expect(row).toContainText(/klab_\*+/);
+    await expect(row).not.toContainText(KEY);
+  });
 });
