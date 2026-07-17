@@ -467,6 +467,48 @@ impl IssuedKeyRepository for PostgresIssuedKeyRepository {
             None => Ok(None),
         }
     }
+
+    async fn unrevoke_key(
+        &self,
+        id: IssuedKeyId,
+        unrevoked_by: &str,
+    ) -> Result<Option<(AuthKey, DeviceId)>, RepositoryError> {
+        let backend = |e: sqlx::Error| RepositoryError::Backend(e.to_string());
+
+        // Clear the soft-delete — idempotent: an already-active row
+        // still returns so the caller can re-invalidate its cache.
+        // `deleted_by` is nulled too; the revoke provenance lives on in
+        // `audit_log`. `updated_by` records who lifted the revocation.
+        let row: Option<(String, String)> = sqlx::query_as(
+            r#"UPDATE authentication_keys
+               SET deleted_at = NULL,
+                   deleted_by = NULL,
+                   updated_by = $2,
+                   updated_at = NOW()
+               WHERE id = $1
+               RETURNING key, device_id"#,
+        )
+        .bind(id.value())
+        .bind(unrevoked_by)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(backend)?;
+
+        match row {
+            Some((raw_key, raw_device)) => {
+                let key = AuthKey::parse(raw_key).map_err(domain_to_backend)?;
+                let device = DeviceId::parse(raw_device).map_err(domain_to_backend)?;
+                log::info!(
+                    "KeyUnrevoked: id={}, device={}, unrevoked_by={}",
+                    id.value(),
+                    device.as_str(),
+                    unrevoked_by
+                );
+                Ok(Some((key, device)))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 fn domain_to_backend(e: DomainError) -> RepositoryError {

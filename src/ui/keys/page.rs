@@ -1,5 +1,5 @@
 use crate::models::AuthenticationKey;
-use crate::server::key_service::{delete_key, list_keys, reset_rate_limit};
+use crate::server::key_service::{list_keys, reset_rate_limit, revoke_key};
 use crate::ui::design::modal::{ConfirmModal, Modal};
 use crate::ui::keys::key_form::KeyForm;
 use crate::ui::keys::key_table::KeyTable;
@@ -60,7 +60,7 @@ pub fn KeysPage() -> impl IntoView {
         if let Some(id) = confirm_delete_id.get_untracked() {
             confirm_delete_id.set(None);
             leptos::task::spawn_local(async move {
-                if let Ok(()) = delete_key(id).await {
+                if let Ok(()) = revoke_key(id).await {
                     refresh_counter.update(|c| *c += 1);
                 }
             });

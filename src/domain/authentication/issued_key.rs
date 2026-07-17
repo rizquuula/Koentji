@@ -149,6 +149,14 @@ impl IssuedKey {
         }
     }
 
+    /// Clear the revocation, restoring the key to authorizable state.
+    /// Idempotent — unrevoking an already-active key is a no-op. Does
+    /// not touch expiry: an unrevoked-but-expired key is still denied
+    /// with `Expired`.
+    pub fn unrevoke(&mut self) {
+        self.revoked_at = None;
+    }
+
     /// Move this key to a different device. Does not reset the ledger;
     /// quota follows the key, not the device. Cache invalidation of the
     /// old `(key, old_device)` entry is the caller's job (see 2.4).
@@ -228,6 +236,51 @@ mod tests {
         k.revoke(first);
         k.revoke(second);
         assert_eq!(k.revoked_at, Some(first));
+    }
+
+    #[test]
+    fn unrevoke_clears_revoked_at() {
+        let mut k = active_key_with_quota(100.0, 50.0);
+        k.revoke(clock() - Duration::days(1));
+        assert!(k.revoked_at.is_some());
+        k.unrevoke();
+        assert_eq!(k.revoked_at, None);
+    }
+
+    #[test]
+    fn unrevoke_is_idempotent() {
+        let mut k = active_key_with_quota(100.0, 50.0);
+        // Unrevoking an already-active key is a harmless no-op.
+        k.unrevoke();
+        assert_eq!(k.revoked_at, None);
+        k.revoke(clock());
+        k.unrevoke();
+        k.unrevoke();
+        assert_eq!(k.revoked_at, None);
+    }
+
+    #[test]
+    fn unrevoke_does_not_bypass_expiry() {
+        let mut k = active_key_with_quota(100.0, 50.0);
+        k.revoke(clock() - Duration::days(1));
+        k.expired_at = Some(clock() - Duration::minutes(1));
+        k.unrevoke();
+        // No longer revoked, but still past expiry → Expired, not Allowed.
+        let d = k.authorize(RateLimitUsage::literal(1.0), clock());
+        matches_denial(&d, |r| matches!(r, DenialReason::Expired { .. }));
+    }
+
+    #[test]
+    fn authorize_allows_after_unrevoke() {
+        let mut k = active_key_with_quota(100.0, 50.0);
+        k.revoke(clock() - Duration::days(1));
+        assert!(!k
+            .authorize(RateLimitUsage::literal(1.0), clock())
+            .is_allowed());
+        k.unrevoke();
+        assert!(k
+            .authorize(RateLimitUsage::literal(1.0), clock())
+            .is_allowed());
     }
 
     #[test]

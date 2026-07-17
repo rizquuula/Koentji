@@ -531,6 +531,87 @@ async fn revoke_key_returns_none_for_an_unknown_id() {
 }
 
 #[tokio::test]
+async fn unrevoke_key_clears_deleted_columns() {
+    let pool = fresh_pool().await;
+    let inserted = a_key()
+        .with_key("klab_unrevoke_me")
+        .with_device("dev-unrevoke-me")
+        .revoked()
+        .insert(&pool)
+        .await;
+
+    let r = repo(pool.clone());
+    let out = r
+        .unrevoke_key(IssuedKeyId::new(inserted.id), "test-admin")
+        .await
+        .expect("unrevoke must not error")
+        .expect("row matched");
+
+    assert_eq!(out.0.as_str(), "klab_unrevoke_me");
+    assert_eq!(out.1.as_str(), "dev-unrevoke-me");
+
+    // deleted_at / deleted_by are both cleared; the row hydrates active.
+    let (deleted_at, deleted_by): (Option<DateTime<Utc>>, Option<String>) =
+        sqlx::query_as("SELECT deleted_at, deleted_by FROM authentication_keys WHERE id = $1")
+            .bind(inserted.id)
+            .fetch_one(&pool)
+            .await
+            .expect("snapshot deleted columns");
+    assert!(deleted_at.is_none(), "deleted_at cleared");
+    assert!(deleted_by.is_none(), "deleted_by cleared");
+
+    let snap = r
+        .find(&auth_key("klab_unrevoke_me"), &device("dev-unrevoke-me"))
+        .await
+        .expect("find must not error")
+        .expect("row exists (active)");
+    assert!(
+        snap.revoked_at.is_none(),
+        "unrevoked row is no longer revoked"
+    );
+}
+
+#[tokio::test]
+async fn unrevoke_key_is_idempotent_on_active_key() {
+    // Unrevoking a never-revoked (active) key is a harmless no-op that
+    // still returns the row so the caller can re-evict its cache.
+    let pool = fresh_pool().await;
+    let inserted = a_key()
+        .with_key("klab_already_active")
+        .with_device("dev-already-active")
+        .insert(&pool)
+        .await;
+
+    let r = repo(pool.clone());
+    let out = r
+        .unrevoke_key(IssuedKeyId::new(inserted.id), "test-admin")
+        .await
+        .expect("unrevoke must not error")
+        .expect("row still matches");
+    assert_eq!(out.0.as_str(), "klab_already_active");
+
+    let deleted_at: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT deleted_at FROM authentication_keys WHERE id = $1")
+            .bind(inserted.id)
+            .fetch_one(&pool)
+            .await
+            .expect("snapshot deleted_at");
+    assert!(deleted_at.is_none(), "still active after no-op unrevoke");
+}
+
+#[tokio::test]
+async fn unrevoke_key_returns_none_for_unknown_id() {
+    let pool = fresh_pool().await;
+    let r = repo(pool.clone());
+
+    let out = r
+        .unrevoke_key(IssuedKeyId::new(9_999_999), "test-admin")
+        .await
+        .expect("unrevoke must not error");
+    assert!(out.is_none());
+}
+
+#[tokio::test]
 async fn reassign_device_returns_previous_and_current_devices() {
     let pool = fresh_pool().await;
     let inserted = a_key()

@@ -15,6 +15,7 @@ pub mod issue_key;
 pub mod reassign_device;
 pub mod reset_rate_limit;
 pub mod revoke_key;
+pub mod unrevoke_key;
 
 pub use authenticate_api_key::{AuthOutcome, AuthenticateApiKey};
 pub use extend_expiration::ExtendExpiration;
@@ -22,3 +23,4 @@ pub use issue_key::IssueKey;
 pub use reassign_device::ReassignDevice;
 pub use reset_rate_limit::ResetRateLimit;
 pub use revoke_key::RevokeKey;
+pub use unrevoke_key::UnrevokeKey;

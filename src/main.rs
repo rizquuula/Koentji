@@ -51,6 +51,7 @@ async fn main() -> std::io::Result<()> {
 
     use koentji::application::{
         AuthenticateApiKey, ExtendExpiration, IssueKey, ReassignDevice, ResetRateLimit, RevokeKey,
+        UnrevokeKey,
     };
     use koentji::domain::admin_access::{LockoutPolicy, LoginAttemptLedger};
     use koentji::domain::authentication::FreeTrialConfig;
@@ -120,6 +121,11 @@ async fn main() -> std::io::Result<()> {
     ));
     let issue_key = std::sync::Arc::new(IssueKey::new(issued_key_repo.clone(), audit_port.clone()));
     let revoke_key = std::sync::Arc::new(RevokeKey::new(
+        issued_key_repo.clone(),
+        auth_cache_port.clone(),
+        audit_port.clone(),
+    ));
+    let unrevoke_key = std::sync::Arc::new(UnrevokeKey::new(
         issued_key_repo.clone(),
         auth_cache_port.clone(),
         audit_port.clone(),
@@ -254,6 +260,7 @@ async fn main() -> std::io::Result<()> {
         let auth_handler = auth_handler.clone();
         let issue_key = issue_key.clone();
         let revoke_key = revoke_key.clone();
+        let unrevoke_key = unrevoke_key.clone();
         let reassign_device = reassign_device.clone();
         let reset_rate_limit = reset_rate_limit.clone();
         let extend_expiration = extend_expiration.clone();
@@ -267,6 +274,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::from(auth_event_sink))
             .app_data(web::Data::new(issue_key))
             .app_data(web::Data::new(revoke_key))
+            .app_data(web::Data::new(unrevoke_key))
             .app_data(web::Data::new(reassign_device))
             .app_data(web::Data::new(reset_rate_limit))
             .app_data(web::Data::new(extend_expiration))

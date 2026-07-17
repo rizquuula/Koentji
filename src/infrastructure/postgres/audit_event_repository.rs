@@ -46,6 +46,9 @@ impl PostgresAuditEventRepository {
             DomainEvent::KeyRevoked { device, .. } => json!({
                 "device": device,
             }),
+            DomainEvent::KeyUnrevoked { device, .. } => json!({
+                "device": device,
+            }),
             DomainEvent::DeviceReassigned {
                 previous_device,
                 current_device,

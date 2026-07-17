@@ -15,7 +15,9 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use koentji::application::{ExtendExpiration, IssueKey, ReassignDevice, ResetRateLimit, RevokeKey};
+use koentji::application::{
+    ExtendExpiration, IssueKey, ReassignDevice, ResetRateLimit, RevokeKey, UnrevokeKey,
+};
 use koentji::domain::authentication::{
     AuditEventPort, AuthCachePort, AuthKey, ConsumeOutcome, DeviceId, DeviceReassignment,
     DomainEvent, FreeTrialConfig, IssueKeyCommand, IssuedKey, IssuedKeyId, IssuedKeyRepository,
@@ -32,6 +34,7 @@ struct FakeRepo {
     calls: Mutex<Vec<RepoCall>>,
     // Configured outcomes for the admin verbs — tests set these up front.
     revoke: Mutex<Option<Option<(AuthKey, DeviceId)>>>,
+    unrevoke: Mutex<Option<Option<(AuthKey, DeviceId)>>>,
     reassign: Mutex<Option<Option<DeviceReassignment>>>,
     reset: Mutex<Option<Option<(AuthKey, DeviceId)>>>,
     extend: Mutex<Option<Option<(AuthKey, DeviceId)>>>,
@@ -45,6 +48,10 @@ enum RepoCall {
         device: String,
     },
     Revoke {
+        id: i32,
+        by: String,
+    },
+    Unrevoke {
         id: i32,
         by: String,
     },
@@ -115,6 +122,18 @@ impl IssuedKeyRepository for FakeRepo {
             by: revoked_by.to_string(),
         });
         Ok(self.revoke.lock().await.take().unwrap_or(None))
+    }
+
+    async fn unrevoke_key(
+        &self,
+        id: IssuedKeyId,
+        unrevoked_by: &str,
+    ) -> Result<Option<(AuthKey, DeviceId)>, RepositoryError> {
+        self.calls.lock().await.push(RepoCall::Unrevoke {
+            id: id.value(),
+            by: unrevoked_by.to_string(),
+        });
+        Ok(self.unrevoke.lock().await.take().unwrap_or(None))
     }
 
     async fn reassign_device(
@@ -315,6 +334,62 @@ async fn revoke_key_does_not_touch_cache_on_unknown_id() {
     assert!(
         cache.invalidations.lock().await.is_empty(),
         "no cache eviction when nothing was revoked",
+    );
+    assert!(
+        audit.events.lock().await.is_empty(),
+        "no audit event when nothing changed state",
+    );
+}
+
+// ---- UnrevokeKey ----------------------------------------------------------
+
+#[tokio::test]
+async fn unrevoke_key_invalidates_cache_on_success() {
+    let repo = Arc::new(FakeRepo::default());
+    *repo.unrevoke.lock().await = Some(Some((auth_key("klab_unrevoked"), device("dev-unrevoked"))));
+    let cache = Arc::new(FakeCache::default());
+    let audit = Arc::new(FakeAudit::default());
+    let unrevoke = UnrevokeKey::new(repo.clone(), cache.clone(), audit.clone());
+
+    let ok = unrevoke
+        .execute(IssuedKeyId::new(7), "test-admin")
+        .await
+        .expect("unrevoke ok");
+
+    assert!(ok, "known id reports true");
+    let evictions = cache.invalidations.lock().await;
+    assert_eq!(evictions.len(), 1);
+    assert_eq!(
+        evictions.first().unwrap(),
+        &("klab_unrevoked".to_string(), "dev-unrevoked".to_string())
+    );
+
+    let events = audit.events.lock().await;
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        events.first(),
+        Some(DomainEvent::KeyUnrevoked { aggregate_id: 7, device, actor, .. })
+            if device == "dev-unrevoked" && actor == "test-admin"
+    ));
+}
+
+#[tokio::test]
+async fn unrevoke_key_does_not_touch_cache_on_unknown_id() {
+    let repo = Arc::new(FakeRepo::default());
+    // Default: unrevoke returns None.
+    let cache = Arc::new(FakeCache::default());
+    let audit = Arc::new(FakeAudit::default());
+    let unrevoke = UnrevokeKey::new(repo.clone(), cache.clone(), audit.clone());
+
+    let ok = unrevoke
+        .execute(IssuedKeyId::new(9_999), "test-admin")
+        .await
+        .expect("unrevoke ok");
+
+    assert!(!ok, "unknown id reports false");
+    assert!(
+        cache.invalidations.lock().await.is_empty(),
+        "no cache eviction when nothing was unrevoked",
     );
     assert!(
         audit.events.lock().await.is_empty(),

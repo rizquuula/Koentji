@@ -286,7 +286,7 @@ pub async fn update_key(
 }
 
 #[server]
-pub async fn delete_key(id: i32) -> Result<(), ServerFnError> {
+pub async fn revoke_key(id: i32) -> Result<(), ServerFnError> {
     super::require_admin().await?;
 
     use leptos_actix::extract;
@@ -302,6 +302,29 @@ pub async fn delete_key(id: i32) -> Result<(), ServerFnError> {
         .await
         .map_err(|e| {
             log::error!("Failed to revoke key id={}: {}", id, e);
+            ServerFnError::new(e.to_string())
+        })?;
+
+    Ok(())
+}
+
+#[server]
+pub async fn unrevoke_key(id: i32) -> Result<(), ServerFnError> {
+    super::require_admin().await?;
+
+    use leptos_actix::extract;
+    use std::sync::Arc;
+
+    use crate::application::UnrevokeKey;
+    use crate::domain::authentication::IssuedKeyId;
+
+    let unrevoke = extract::<actix_web::web::Data<Arc<UnrevokeKey>>>().await?;
+
+    unrevoke
+        .execute(IssuedKeyId::new(id), "admin")
+        .await
+        .map_err(|e| {
+            log::error!("Failed to unrevoke key id={}: {}", id, e);
             ServerFnError::new(e.to_string())
         })?;
 

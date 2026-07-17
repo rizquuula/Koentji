@@ -37,6 +37,14 @@ pub enum DomainEvent {
         actor: String,
         occurred_at: DateTime<Utc>,
     },
+    /// An admin cleared the revocation on the key at `aggregate_id`,
+    /// restoring it to authorizable state.
+    KeyUnrevoked {
+        aggregate_id: i32,
+        device: String,
+        actor: String,
+        occurred_at: DateTime<Utc>,
+    },
     /// The `(key, previous_device)` row has been rebound to
     /// `current_device`.
     DeviceReassigned {
@@ -71,6 +79,7 @@ impl DomainEvent {
         match self {
             DomainEvent::KeyIssued { .. } => "KeyIssued",
             DomainEvent::KeyRevoked { .. } => "KeyRevoked",
+            DomainEvent::KeyUnrevoked { .. } => "KeyUnrevoked",
             DomainEvent::DeviceReassigned { .. } => "DeviceReassigned",
             DomainEvent::RateLimitReset { .. } => "RateLimitReset",
             DomainEvent::KeyExpirationExtended { .. } => "KeyExpirationExtended",
@@ -81,6 +90,7 @@ impl DomainEvent {
         match self {
             DomainEvent::KeyIssued { aggregate_id, .. }
             | DomainEvent::KeyRevoked { aggregate_id, .. }
+            | DomainEvent::KeyUnrevoked { aggregate_id, .. }
             | DomainEvent::DeviceReassigned { aggregate_id, .. }
             | DomainEvent::RateLimitReset { aggregate_id, .. }
             | DomainEvent::KeyExpirationExtended { aggregate_id, .. } => *aggregate_id,
@@ -91,6 +101,7 @@ impl DomainEvent {
         match self {
             DomainEvent::KeyIssued { actor, .. }
             | DomainEvent::KeyRevoked { actor, .. }
+            | DomainEvent::KeyUnrevoked { actor, .. }
             | DomainEvent::DeviceReassigned { actor, .. }
             | DomainEvent::RateLimitReset { actor, .. }
             | DomainEvent::KeyExpirationExtended { actor, .. } => actor,
@@ -101,6 +112,7 @@ impl DomainEvent {
         match self {
             DomainEvent::KeyIssued { occurred_at, .. }
             | DomainEvent::KeyRevoked { occurred_at, .. }
+            | DomainEvent::KeyUnrevoked { occurred_at, .. }
             | DomainEvent::DeviceReassigned { occurred_at, .. }
             | DomainEvent::RateLimitReset { occurred_at, .. }
             | DomainEvent::KeyExpirationExtended { occurred_at, .. } => *occurred_at,

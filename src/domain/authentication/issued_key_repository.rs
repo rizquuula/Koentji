@@ -166,6 +166,21 @@ pub trait IssuedKeyRepository: Send + Sync {
         revoked_by: &str,
     ) -> Result<Option<(AuthKey, DeviceId)>, RepositoryError>;
 
+    /// Admin command — clear the revocation on the row at `id`,
+    /// restoring the key to authorizable state.
+    ///
+    /// Idempotent: a second call (or a call on an already-active key)
+    /// is a no-op and still returns `Ok(Some(_))` so the use case can
+    /// re-invalidate its cache entry. Returns `Ok(None)` when no row
+    /// with `id` exists. The `(AuthKey, DeviceId)` in the return tuple
+    /// lets the use case evict the cache entry without a second DB
+    /// round-trip.
+    async fn unrevoke_key(
+        &self,
+        id: super::issued_key::IssuedKeyId,
+        unrevoked_by: &str,
+    ) -> Result<Option<(AuthKey, DeviceId)>, RepositoryError>;
+
     /// Admin command — move `id`'s device from its current value to
     /// `new_device`. Returns both the previous and the current device
     /// so the use case can evict the *old* `(key, previous_device)`
