@@ -126,9 +126,9 @@ pub fn AnalyticsPage() -> impl IntoView {
 
     let button_class = move |r: AnalyticsRange| {
         if range.get() == r {
-            "px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white"
+            "px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white transition-colors duration-quick"
         } else {
-            "px-3 py-1.5 text-sm font-medium rounded-lg bg-white text-gray-700 hover:bg-gray-100 border"
+            "px-3 py-1.5 text-sm font-medium rounded-lg bg-white text-gray-700 hover:bg-gray-100 border transition-colors duration-quick"
         }
     };
 
