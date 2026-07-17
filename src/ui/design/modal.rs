@@ -133,7 +133,7 @@ pub fn ConfirmModal(
 
     view! {
         <Show when=move || show.get()>
-            <div class="fixed inset-0 z-40 bg-black/50" aria-hidden="true"></div>
+            <div class="fixed inset-0 z-40 bg-black/50 animate-fade-in motion-reduce:animate-none" aria-hidden="true"></div>
         </Show>
         <div
             class="fixed inset-0 z-50 flex items-center justify-center"
@@ -152,7 +152,7 @@ pub fn ConfirmModal(
                 aria-description=message_for_aria
                 tabindex="-1"
                 on:keydown=handle_keydown
-                class="relative bg-surface-base rounded-card shadow-overlay w-full max-w-md mx-4 z-10"
+                class="relative bg-surface-base rounded-card shadow-overlay w-full max-w-md mx-4 z-10 animate-pop-in motion-reduce:animate-fade-in"
             >
                 <div class="px-6 pt-6 pb-4">
                     <div class="flex items-start space-x-3">
@@ -248,7 +248,7 @@ pub fn Modal(
 
     view! {
         <Show when=move || show.get()>
-            <div class="fixed inset-0 z-40 bg-black/50" aria-hidden="true"></div>
+            <div class="fixed inset-0 z-40 bg-black/50 animate-fade-in motion-reduce:animate-none" aria-hidden="true"></div>
         </Show>
         <div
             class="fixed inset-0 z-50 flex items-center justify-center"
@@ -266,7 +266,7 @@ pub fn Modal(
                 aria-label=title_for_aria
                 tabindex="-1"
                 on:keydown=handle_keydown
-                class="relative bg-surface-base rounded-card shadow-overlay w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto z-10"
+                class="relative bg-surface-base rounded-card shadow-overlay w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto z-10 animate-pop-in motion-reduce:animate-fade-in"
             >
                 <div class="flex items-center justify-between px-6 py-4 border-b border-surface-border">
                     <h3 class="text-lg font-semibold text-ink-heading">{title}</h3>
