@@ -5,7 +5,7 @@ test.describe('dashboard stats', () => {
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
-    for (const title of ['Total Keys', 'Active Keys', 'Expired Keys', 'Deleted Keys']) {
+    for (const title of ['Total Keys', 'Active Keys', 'Expired Keys', 'Revoked Keys']) {
       const card = page.getByText(title).locator('..');
       await expect(card).toBeVisible();
       const value = await card.locator('p.text-2xl').innerText();

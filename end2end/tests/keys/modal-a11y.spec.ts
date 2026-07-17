@@ -112,7 +112,7 @@ test.describe('modal accessibility', () => {
     await page.goto('/keys');
 
     const row = page.getByRole('row').filter({ hasText: CONFIRM_DEVICE });
-    await row.getByRole('button', { name: /Revoke/i }).click();
+    await row.getByRole('button', { name: 'Revoke key' }).click();
 
     const confirmDialog = page.getByRole('alertdialog', { name: 'Revoke API Key' });
     await expect(confirmDialog).toBeVisible();
