@@ -376,6 +376,12 @@ fn activity_summary(
             };
             format!("{key_ref} revoked on device {device}")
         }
+        "KeyUnrevoked" => {
+            let Some(device) = field("device") else {
+                return format!("{key_ref} unrevoked");
+            };
+            format!("{key_ref} unrevoked on device {device}")
+        }
         "DeviceReassigned" => {
             let (Some(previous), Some(current)) =
                 (field("previous_device"), field("current_device"))
@@ -445,6 +451,12 @@ mod tests {
     fn key_revoked_reads_device() {
         let summary = activity_summary("KeyRevoked", Some(42), &json!({ "device": "abc" }));
         assert_eq!(summary, "Key #42 revoked on device abc");
+    }
+
+    #[test]
+    fn key_unrevoked_reads_device() {
+        let summary = activity_summary("KeyUnrevoked", Some(42), &json!({ "device": "abc" }));
+        assert_eq!(summary, "Key #42 unrevoked on device abc");
     }
 
     #[test]

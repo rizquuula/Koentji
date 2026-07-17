@@ -24,7 +24,7 @@ pub fn StatsCards(#[prop(into)] stats: Signal<Option<DashboardStats>>) -> impl I
                 bg_color="bg-yellow-50"
             />
             <StatCard
-                title="Deleted Keys"
+                title="Revoked Keys"
                 value=Signal::derive(move || stats.get().map(|s| s.deleted).unwrap_or(0))
                 icon_color="text-red-600"
                 bg_color="bg-red-50"

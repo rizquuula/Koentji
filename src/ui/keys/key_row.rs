@@ -20,9 +20,14 @@ pub fn KeyRow(
     key: AuthenticationKey,
     #[prop(into)] on_edit: Callback<AuthenticationKey>,
     #[prop(into)] on_delete: Callback<i32>,
+    #[prop(into)] on_unrevoke: Callback<i32>,
     #[prop(into)] on_reset: Callback<i32>,
 ) -> impl IntoView {
     let key_id = key.id;
+    // Whether this row is currently revoked decides which toggle button
+    // renders. Captured at construction time — valid because the table
+    // remounts the row (via `row_version()`) when its content changes.
+    let is_revoked = key.deleted_at.is_some();
     // Render the "created" timestamp in the viewer's local zone, not UTC.
     let offset = crate::ui::tz::use_tz_offset();
     let created_at = key.created_at;
@@ -63,7 +68,7 @@ pub fn KeyRow(
     let status_badge_class = match status.as_str() {
         "active" => "bg-green-100 text-green-800",
         "expired" => "bg-yellow-100 text-yellow-800",
-        "deleted" => "bg-red-100 text-red-800",
+        "revoked" => "bg-red-100 text-red-800",
         _ => "bg-gray-100 text-gray-800",
     };
 
@@ -257,17 +262,37 @@ pub fn KeyRow(
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                         </svg>
                     </button>
-                    <button
-                        type="button"
-                        class="text-red-600 hover:text-red-800 text-xs"
-                        title="Revoke"
-                        aria-label="Revoke key"
-                        on:click=move |_| on_delete.run(key_id)
-                    >
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                        </svg>
-                    </button>
+                    {if is_revoked {
+                        // Revoked → offer Unrevoke (green, arrow-uturn-left).
+                        view! {
+                            <button
+                                type="button"
+                                class="text-green-600 hover:text-green-800 text-xs"
+                                title="Unrevoke"
+                                aria-label="Unrevoke key"
+                                on:click=move |_| on_unrevoke.run(key_id)
+                            >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
+                                </svg>
+                            </button>
+                        }.into_any()
+                    } else {
+                        // Active/expired → offer Revoke (red, no-symbol/ban).
+                        view! {
+                            <button
+                                type="button"
+                                class="text-red-600 hover:text-red-800 text-xs"
+                                title="Revoke"
+                                aria-label="Revoke key"
+                                on:click=move |_| on_delete.run(key_id)
+                            >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+                                </svg>
+                            </button>
+                        }.into_any()
+                    }}
                 </div>
             </td>
         </tr>

@@ -7,6 +7,7 @@ pub fn KeyTable(
     #[prop(into)] data: Signal<Option<KeyListResponse>>,
     #[prop(into)] on_edit: Callback<AuthenticationKey>,
     #[prop(into)] on_delete: Callback<i32>,
+    #[prop(into)] on_unrevoke: Callback<i32>,
     #[prop(into)] on_reset: Callback<i32>,
     #[prop(into)] page: Signal<i32>,
     #[prop(into)] on_page_change: Callback<i32>,
@@ -49,6 +50,7 @@ pub fn KeyTable(
                                 key=key
                                 on_edit=on_edit
                                 on_delete=on_delete
+                                on_unrevoke=on_unrevoke
                                 on_reset=on_reset
                             />
                         </For>

@@ -40,7 +40,7 @@ pub async fn list_keys(
         "expired" => conditions.push(
             "expired_at IS NOT NULL AND expired_at <= NOW() AND deleted_at IS NULL".to_string(),
         ),
-        "deleted" => conditions.push("deleted_at IS NOT NULL".to_string()),
+        "revoked" => conditions.push("deleted_at IS NOT NULL".to_string()),
         _ => {}
     }
 

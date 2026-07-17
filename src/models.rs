@@ -60,7 +60,7 @@ impl AuthenticationKey {
 
     pub fn status(&self) -> &str {
         if self.deleted_at.is_some() {
-            "deleted"
+            "revoked"
         } else if self.is_expired() {
             "expired"
         } else {

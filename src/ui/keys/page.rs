@@ -1,5 +1,5 @@
 use crate::models::AuthenticationKey;
-use crate::server::key_service::{list_keys, reset_rate_limit, revoke_key};
+use crate::server::key_service::{list_keys, reset_rate_limit, revoke_key, unrevoke_key};
 use crate::ui::design::modal::{ConfirmModal, Modal};
 use crate::ui::design::toast::use_toast;
 use crate::ui::keys::key_form::KeyForm;
@@ -48,10 +48,15 @@ pub fn KeysPage() -> impl IntoView {
     });
 
     let confirm_delete_id = RwSignal::new(None::<i32>);
+    let confirm_unrevoke_id = RwSignal::new(None::<i32>);
     let confirm_reset_id = RwSignal::new(None::<i32>);
 
     let on_delete = Callback::new(move |id: i32| {
         confirm_delete_id.set(Some(id));
+    });
+
+    let on_unrevoke = Callback::new(move |id: i32| {
+        confirm_unrevoke_id.set(Some(id));
     });
 
     let on_reset = Callback::new(move |id: i32| {
@@ -65,6 +70,18 @@ pub fn KeysPage() -> impl IntoView {
                 match revoke_key(id).await {
                     Ok(()) => refresh_counter.update(|c| *c += 1),
                     Err(e) => toast.error(&format!("Failed to revoke key: {e}")),
+                }
+            });
+        }
+    };
+
+    let do_unrevoke = move || {
+        if let Some(id) = confirm_unrevoke_id.get_untracked() {
+            confirm_unrevoke_id.set(None);
+            leptos::task::spawn_local(async move {
+                match unrevoke_key(id).await {
+                    Ok(()) => refresh_counter.update(|c| *c += 1),
+                    Err(e) => toast.error(&format!("Failed to unrevoke key: {e}")),
                 }
             });
         }
@@ -186,7 +203,7 @@ pub fn KeysPage() -> impl IntoView {
                             <option value="">"All Statuses"</option>
                             <option value="active">"Active"</option>
                             <option value="expired">"Expired"</option>
-                            <option value="deleted">"Deleted"</option>
+                            <option value="revoked">"Revoked"</option>
                         </select>
                     </div>
                 </div>
@@ -201,6 +218,7 @@ pub fn KeysPage() -> impl IntoView {
                         data=keys_signal
                         on_edit=on_edit
                         on_delete=on_delete
+                        on_unrevoke=on_unrevoke
                         on_reset=on_reset
                         page=page
                         on_page_change=Callback::new(move |p: i32| {
@@ -253,15 +271,25 @@ pub fn KeysPage() -> impl IntoView {
                 })}
             </Modal>
 
-            // Delete Confirmation Modal
+            // Revoke Confirmation Modal
             <ConfirmModal
                 show=Signal::derive(move || confirm_delete_id.get().is_some())
                 on_confirm=Callback::new(move |_| do_delete())
                 on_cancel=Callback::new(move |_| confirm_delete_id.set(None))
                 title="Revoke API Key"
-                message="Are you sure you want to revoke this API key? This action cannot be undone."
+                message="Are you sure you want to revoke this API key? Authentication will be denied until it is unrevoked."
                 confirm_label="Revoke"
                 danger=true
+            />
+
+            // Unrevoke Confirmation Modal
+            <ConfirmModal
+                show=Signal::derive(move || confirm_unrevoke_id.get().is_some())
+                on_confirm=Callback::new(move |_| do_unrevoke())
+                on_cancel=Callback::new(move |_| confirm_unrevoke_id.set(None))
+                title="Unrevoke API Key"
+                message="Are you sure you want to unrevoke this API key? It will be able to authenticate again."
+                confirm_label="Unrevoke"
             />
 
             // Reset Rate Limit Confirmation Modal

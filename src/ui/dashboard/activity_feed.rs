@@ -11,6 +11,7 @@ fn event_tone(event_type: &str) -> BadgeTone {
     match event_type {
         "KeyIssued" => BadgeTone::Success,
         "KeyRevoked" => BadgeTone::Danger,
+        "KeyUnrevoked" => BadgeTone::Success,
         "DeviceReassigned" => BadgeTone::Brand,
         "RateLimitReset" => BadgeTone::Warning,
         "KeyExpirationExtended" => BadgeTone::Neutral,
