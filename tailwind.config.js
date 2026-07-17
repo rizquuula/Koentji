@@ -95,12 +95,16 @@ module.exports = {
         "slide-out": {
           to: { transform: "translateX(100%)", opacity: "0" },
         },
+        "rise-in": {
+          from: { opacity: "0", transform: "translateY(12px)" },
+        },
       },
       animation: {
         "slide-in":  "slide-in 300ms cubic-bezier(0.16, 1, 0.3, 1)",
         "fade-in":   "fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1)",
         "pop-in":    "pop-in 200ms cubic-bezier(0.16, 1, 0.3, 1)",
         "slide-out": "slide-out 300ms cubic-bezier(0.4, 0, 1, 1) forwards",
+        "rise-in":   "rise-in 500ms cubic-bezier(0.16, 1, 0.3, 1) backwards",
       },
     },
   },
