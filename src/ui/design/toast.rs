@@ -5,6 +5,7 @@ pub struct Toast {
     pub id: u32,
     pub message: String,
     pub toast_type: ToastType,
+    pub exiting: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -50,6 +51,7 @@ impl ToastContext {
             id,
             message,
             toast_type,
+            exiting: false,
         };
         self.set_toasts.update(|t| t.push(toast));
 
@@ -60,6 +62,19 @@ impl ToastContext {
                 set_toasts.update(|t| t.retain(|toast| toast.id != id));
             },
             std::time::Duration::from_secs(5),
+        );
+
+        // Flag the toast as exiting 300ms before removal so the slide-out
+        // animation plays out inside its own lifetime rather than being cut off.
+        set_timeout(
+            move || {
+                set_toasts.update(|list| {
+                    if let Some(t) = list.iter_mut().find(|t| t.id == id) {
+                        t.exiting = true;
+                    }
+                });
+            },
+            std::time::Duration::from_millis(4700),
         );
     }
 
@@ -101,12 +116,13 @@ pub fn ToastContainer() -> impl IntoView {
         >
             <For
                 each=move || ctx.toasts.get()
-                key=|toast| toast.id
+                key=|toast| (toast.id, toast.exiting)
                 let:toast
             >
                 <div
                     class=format!(
-                        "flex items-center p-4 border-l-4 rounded-lg shadow-lg max-w-sm animate-slide-in {}",
+                        "flex items-center p-4 border-l-4 rounded-lg shadow-lg max-w-sm motion-reduce:animate-none {} {}",
+                        if toast.exiting { "animate-slide-out" } else { "animate-slide-in" },
                         toast.toast_type.classes()
                     )
                     role={if toast.toast_type == ToastType::Error { "alert" } else { "status" }}
