@@ -1,7 +1,8 @@
 //! Design primitives.
 //!
-//! Six building blocks replace the class-soup copy-paste across forms and
-//! pages: `Button`, `Input`, `Select`, `Surface`, `Stack`, `Badge`. They
+//! Seven building blocks replace the class-soup copy-paste across forms and
+//! pages: `Button`, `Input`, `Select`, `Surface`, `Stack`, `Badge`,
+//! `Toggle`. They
 //! compose on top of the semantic tokens introduced in 6.1
 //! (`brand`/`surface`/`ink`/`feedback` + `rounded-control`/`rounded-card`).
 
@@ -15,6 +16,7 @@ pub mod select;
 pub mod stack;
 pub mod surface;
 pub mod toast;
+pub mod toggle;
 
 pub use badge::{Badge, BadgeTone};
 pub use button::{Button, ButtonType, ButtonVariant};
@@ -24,3 +26,4 @@ pub use page_header::PageHeader;
 pub use select::Select;
 pub use stack::{Stack, StackGap};
 pub use surface::Surface;
+pub use toggle::Toggle;

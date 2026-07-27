@@ -1,7 +1,8 @@
+use crate::domain::authentication::device_id::UNCLAIMED_SENTINEL;
 use crate::models::{AuthenticationKey, CreateKeyRequest, UpdateKeyRequest};
 use crate::server::subscription_service::list_subscription_types;
 use crate::ui::design::toast::use_toast;
-use crate::ui::design::{Button, ButtonType, ButtonVariant, Input, Stack};
+use crate::ui::design::{Button, ButtonType, ButtonVariant, Input, Stack, Toggle};
 use leptos::prelude::*;
 
 #[component]
@@ -58,7 +59,21 @@ pub fn KeyForm(
             .unwrap_or_default(),
     );
     let submitting = RwSignal::new(false);
+    let unclaimed = RwSignal::new(false);
+    // Holds what the admin typed, so toggling back off restores it.
+    let stashed_device_id = RwSignal::new(String::new());
     let toast = use_toast();
+
+    // An explicit callback rather than an Effect: the swap must run only on a
+    // real flip, never on mount, and must stay ordered against the stash.
+    let on_unclaimed_change = Callback::new(move |on: bool| {
+        if on {
+            stashed_device_id.set(device_id.get_untracked());
+            device_id.set(UNCLAIMED_SENTINEL.to_string());
+        } else {
+            device_id.set(stashed_device_id.get_untracked());
+        }
+    });
 
     let editing_id = key.as_ref().map(|k| k.id);
 
@@ -142,7 +157,26 @@ pub fn KeyForm(
             <Stack>
                 <div>
                     <label for="key-device-id" class="block text-sm font-medium text-ink-body mb-1">"Device ID *"</label>
-                    <Input id="key-device-id" value=device_id required=true />
+                    <Input
+                        id="key-device-id"
+                        value=device_id
+                        required=true
+                        readonly=Signal::derive(move || unclaimed.get())
+                    />
+                    // Create only. Flipping an already-bound key back to
+                    // unclaimed is the ReassignDevice verb, which evicts two
+                    // cache keys — Edit keeps the plain text field.
+                    {(!is_editing).then(|| view! {
+                        <Toggle
+                            id="key-device-unclaimed"
+                            checked=unclaimed
+                            label="Leave unclaimed — bind on first use"
+                            on_change=on_unclaimed_change
+                        />
+                        <p class="text-xs text-ink-disabled mt-1">
+                            "The key binds to the first device that authenticates with it."
+                        </p>
+                    })}
                 </div>
                 <div>
                     <label for="key-username" class="block text-sm font-medium text-ink-body mb-1">"Username"</label>
