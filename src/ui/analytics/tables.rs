@@ -26,6 +26,17 @@ pub fn truncate_key(key: &str) -> String {
     format!("{head}…{tail}")
 }
 
+/// Display label for a key: "budi — a1b2c3d4…9f0a", or just the truncated key
+/// when the key has no username (never set, or the row is gone from Postgres).
+/// An all-whitespace username counts as absent.
+pub fn key_label(username: Option<&str>, key: &str) -> String {
+    let truncated = truncate_key(key);
+    match username.map(str::trim).filter(|u| !u.is_empty()) {
+        Some(name) => format!("{name} — {truncated}"),
+        None => truncated,
+    }
+}
+
 /// Percent of quota *remaining*, clamped to 0–100. `None` when the limit is
 /// missing or non-positive (can't compute a ratio) — the caller renders the
 /// raw remaining and skips the bar. A limit that shrank below the recorded
@@ -115,6 +126,35 @@ fn RevealableKey(full: String) -> impl IntoView {
     }
 }
 
+/// Contents of both tables' first cell: the owning username stacked over the
+/// key, mirroring the keys page's username-over-email cell. `font-mono` rides
+/// on the key line rather than the enclosing `<td>` so the username reads as
+/// prose. A key with no username renders the bare key and nothing else — a
+/// placeholder line would shift every other row for no information.
+#[component]
+fn UserKeyCell(username: Option<String>, full: String) -> impl IntoView {
+    let name = username
+        .map(|u| u.trim().to_string())
+        .filter(|u| !u.is_empty());
+    match name {
+        Some(name) => view! {
+            <div>
+                <span class="block text-sm text-gray-900">{name}</span>
+                <div class="text-xs font-mono text-gray-500">
+                    <RevealableKey full=full/>
+                </div>
+            </div>
+        }
+        .into_any(),
+        None => view! {
+            <div class="font-mono">
+                <RevealableKey full=full/>
+            </div>
+        }
+        .into_any(),
+    }
+}
+
 #[component]
 pub fn BusiestKeysTable(rows: Vec<KeyTrafficRow>) -> impl IntoView {
     let is_empty = rows.is_empty();
@@ -130,7 +170,7 @@ pub fn BusiestKeysTable(rows: Vec<KeyTrafficRow>) -> impl IntoView {
                 <table class="w-full">
                     <thead class="bg-gray-50 border-b">
                         <tr>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Key"</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">"User"</th>
                             <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">"Requests"</th>
                             <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">"Deny rate"</th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Last seen"</th>
@@ -144,12 +184,13 @@ pub fn BusiestKeysTable(rows: Vec<KeyTrafficRow>) -> impl IntoView {
                         >
                             {
                                 let full_key = row.auth_key.clone();
+                                let username = row.username.clone();
                                 let deny = deny_rate_pct(row.requests, row.denied);
                                 let last_seen_unix = row.last_seen_unix;
                                 view! {
                                     <tr class="border-b last:border-0">
-                                        <td class="px-4 py-3 text-sm font-mono text-gray-900">
-                                            <RevealableKey full=full_key/>
+                                        <td class="px-4 py-3 text-sm text-gray-900">
+                                            <UserKeyCell username=username full=full_key/>
                                         </td>
                                         <td class="px-4 py-3 text-sm text-right text-gray-700">
                                             {row.requests.to_string()}
@@ -190,7 +231,7 @@ pub fn QuotaPressureTable(rows: Vec<QuotaPressureRow>) -> impl IntoView {
                 <table class="w-full">
                     <thead class="bg-gray-50 border-b">
                         <tr>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">"Key"</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">"User"</th>
                             <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">"Remaining"</th>
                             <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">"Limit"</th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">"% remaining"</th>
@@ -204,6 +245,7 @@ pub fn QuotaPressureTable(rows: Vec<QuotaPressureRow>) -> impl IntoView {
                         >
                             {
                                 let full_key = row.auth_key.clone();
+                                let username = row.username.clone();
                                 let remaining = trim_decimals(row.remaining);
                                 // Deleted-from-Postgres keys show "—" and no bar.
                                 let limit_label = row
@@ -213,8 +255,8 @@ pub fn QuotaPressureTable(rows: Vec<QuotaPressureRow>) -> impl IntoView {
                                 let pct = percent_remaining(row.remaining, row.limit);
                                 view! {
                                     <tr class="border-b last:border-0">
-                                        <td class="px-4 py-3 text-sm font-mono text-gray-900">
-                                            <RevealableKey full=full_key/>
+                                        <td class="px-4 py-3 text-sm text-gray-900">
+                                            <UserKeyCell username=username full=full_key/>
                                         </td>
                                         <td class="px-4 py-3 text-sm text-right text-gray-700">
                                             {remaining}
@@ -292,6 +334,38 @@ mod tests {
         assert_eq!(truncate_key("klab_short"), "klab_short");
         // Exactly the threshold length is left intact.
         assert_eq!(truncate_key("1234567890123"), "1234567890123");
+    }
+
+    #[test]
+    fn key_label_prefixes_the_username_when_present() {
+        assert_eq!(
+            key_label(Some("budi"), "klab_ABCDEFGHIJKLMNOP"),
+            "budi — klab_ABC…MNOP"
+        );
+    }
+
+    #[test]
+    fn key_label_without_a_username_is_the_bare_truncated_key() {
+        assert_eq!(key_label(None, "klab_ABCDEFGHIJKLMNOP"), "klab_ABC…MNOP");
+    }
+
+    #[test]
+    fn key_label_treats_a_blank_username_as_absent() {
+        assert_eq!(
+            key_label(Some(""), "klab_ABCDEFGHIJKLMNOP"),
+            "klab_ABC…MNOP"
+        );
+        assert_eq!(
+            key_label(Some("   \t"), "klab_ABCDEFGHIJKLMNOP"),
+            "klab_ABC…MNOP"
+        );
+    }
+
+    #[test]
+    fn key_label_leaves_a_short_key_untruncated() {
+        // ≤ 13 chars passes straight through `truncate_key`, username or not.
+        assert_eq!(key_label(Some("budi"), "klab_short"), "budi — klab_short");
+        assert_eq!(key_label(None, "klab_short"), "klab_short");
     }
 
     #[test]

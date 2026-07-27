@@ -24,6 +24,10 @@ test.describe('analytics page', () => {
     await expect(page.getByRole('button', { name: '7 Days' })).toBeVisible();
     await expect(page.getByRole('button', { name: '30 Days' })).toBeVisible();
 
+    // The usage filter's <label for> must resolve to the <select>, or the
+    // dropdown has no accessible name at all.
+    await expect(page.getByLabel('Filter by user')).toBeVisible();
+
     await expect(page.getByText(/Failed to load/i)).toHaveCount(0);
   });
 
@@ -68,7 +72,7 @@ test.describe('analytics page', () => {
     const busiest = page
       .getByRole('heading', { name: 'Busiest keys' })
       .locator('xpath=ancestor::div[contains(@class,"shadow")][1]');
-    for (const col of ['Key', 'Requests', 'Deny rate', 'Last seen']) {
+    for (const col of ['User', 'Requests', 'Deny rate', 'Last seen']) {
       await expect(busiest.getByRole('columnheader', { name: col, exact: true })).toBeVisible();
     }
 
@@ -77,7 +81,7 @@ test.describe('analytics page', () => {
     const quota = page
       .getByRole('heading', { name: 'Quota pressure' })
       .locator('xpath=ancestor::div[contains(@class,"shadow")][1]');
-    for (const col of ['Key', 'Remaining', 'Limit', '% remaining']) {
+    for (const col of ['User', 'Remaining', 'Limit', '% remaining']) {
       await expect(quota.getByRole('columnheader', { name: col, exact: true })).toBeVisible();
     }
   });

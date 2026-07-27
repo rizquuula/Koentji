@@ -7,7 +7,7 @@ use crate::ui::analytics::panels::{
     UsagePanel,
 };
 use crate::ui::analytics::summary_cards::SummaryCards;
-use crate::ui::analytics::tables::{truncate_key, BusiestKeysTable, QuotaPressureTable};
+use crate::ui::analytics::tables::{key_label, BusiestKeysTable, QuotaPressureTable};
 use crate::ui::design::select::Select;
 use crate::ui::shell::layout::Layout;
 use leptos::prelude::*;
@@ -255,14 +255,19 @@ pub fn AnalyticsPage() -> impl IntoView {
                                     view! {
                                         <div class="space-y-3">
                                             <div class="flex items-center space-x-3">
-                                                <label class="text-sm font-medium text-gray-700 whitespace-nowrap">
-                                                    "Filter by key"
+                                                // `for`/`id` pair, or the select
+                                                // has no accessible name.
+                                                <label
+                                                    for="analytics-key-filter"
+                                                    class="text-sm font-medium text-gray-700 whitespace-nowrap"
+                                                >
+                                                    "Filter by user"
                                                 </label>
                                                 <div class="w-64">
-                                                    <Select value=selected_key>
-                                                        <option value="">"All keys"</option>
+                                                    <Select value=selected_key id="analytics-key-filter">
+                                                        <option value="">"All users"</option>
                                                         {available_keys.into_iter().map(|k| {
-                                                            let label = truncate_key(&k.auth_key);
+                                                            let label = key_label(k.username.as_deref(), &k.auth_key);
                                                             let val = k.auth_key_id.to_string();
                                                             view! {
                                                                 <option value=val>{label}</option>

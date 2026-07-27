@@ -174,21 +174,26 @@ pub struct DenialReasonCount {
 
 /// One row of the busiest-keys table: a key's request volume, denials, and
 /// the unix-seconds timestamp of its most recent event in the window.
+/// `username` comes from Postgres so the admin reads *whose* traffic this is
+/// rather than an opaque key; `None` when the key is unnamed or deleted.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KeyTrafficRow {
     pub auth_key: String,
+    pub username: Option<String>,
     pub requests: u64,
     pub denied: u64,
     pub last_seen_unix: i64,
 }
 
 /// One row of the quota-pressure table: a key's latest authoritative
-/// `remaining` (from ClickHouse) paired with its full per-window `limit`
-/// (from Postgres). `limit` is `None` when the key no longer exists in
-/// Postgres (deleted but still has events in the ClickHouse window).
+/// `remaining` (from ClickHouse) paired with its full per-window `limit` and
+/// owning `username` (both from Postgres). Both are `None` when the key no
+/// longer exists in Postgres (deleted but still has events in the ClickHouse
+/// window); `username` is also `None` for a key that was never named.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QuotaPressureRow {
     pub auth_key: String,
+    pub username: Option<String>,
     pub remaining: f64,
     pub limit: Option<f64>,
 }
@@ -203,11 +208,14 @@ pub struct UsageBucket {
 
 /// One entry in the key-picker dropdown: the numeric id (used as the filter
 /// param so the server fn receives a typed `i64`) plus the key string for
-/// display (truncated client-side).
+/// display (truncated client-side) and the owning `username` from Postgres, so
+/// the admin picks a person rather than a hash. `username` is `None` for an
+/// unnamed or deleted key, and the label falls back to the key alone.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UsageKeyOption {
     pub auth_key_id: i64,
     pub auth_key: String,
+    pub username: Option<String>,
 }
 
 /// Payload returned by `get_rate_limit_usage`. Carries the densified usage
@@ -393,10 +401,13 @@ struct DenialReasonRow {
     count: u64,
 }
 
+/// `clickhouse::Row` decodes RowBinary *positionally*, so this field order must
+/// mirror the SELECT list of the busiest-keys query exactly.
 #[cfg(feature = "ssr")]
 #[derive(clickhouse::Row, serde::Deserialize)]
 struct BusiestKeyRow {
     auth_key: String,
+    auth_key_id: i64,
     requests: u64,
     denied: u64,
     last_seen_unix: i64,
@@ -432,6 +443,44 @@ struct UsageRow {
 struct AvailableKeyRow {
     auth_key_id: i64,
     auth_key: String,
+}
+
+/// Resolve `id -> (username, rate_limit_daily)` for a batch of key ids in a
+/// single `id = ANY($1)` round trip (never N queries). Ids absent from
+/// Postgres — deleted keys that still have events in the ClickHouse window —
+/// simply miss the map. `auth_key_id = 0` is the unknown-key sentinel and is
+/// filtered out before binding.
+#[cfg(feature = "ssr")]
+async fn lookup_keys(
+    pool: &sqlx::PgPool,
+    ids: &[i64],
+) -> Result<std::collections::HashMap<i64, (Option<String>, f64)>, ServerFnError> {
+    let mut wanted: Vec<i32> = ids
+        .iter()
+        .copied()
+        .filter(|id| *id != 0)
+        .map(|id| id as i32)
+        .collect();
+    wanted.sort_unstable();
+    wanted.dedup();
+
+    let mut out = std::collections::HashMap::new();
+    if wanted.is_empty() {
+        return Ok(out);
+    }
+
+    let rows: Vec<(i32, Option<String>, f64)> = sqlx::query_as(
+        "SELECT id, username, rate_limit_daily FROM authentication_keys WHERE id = ANY($1)",
+    )
+    .bind(wanted)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| ServerFnError::new(e.to_string()))?;
+
+    for (id, username, limit) in rows {
+        out.insert(id as i64, (username, limit));
+    }
+    Ok(out)
 }
 
 #[server(GetRateLimitUsage, "/api")]
@@ -504,9 +553,19 @@ pub async fn get_rate_limit_usage(
         }
     };
 
+    // The dropdown labels keys by their owner, which only Postgres knows. One
+    // extra round trip after the ClickHouse fan-out: a single indexed
+    // `id = ANY` over the primary key for at most the 200 ids above.
+    let pool = extract::<web::Data<sqlx::PgPool>>().await?;
+    let key_ids: Vec<i64> = key_rows.iter().map(|r| r.auth_key_id).collect();
+    let key_meta = lookup_keys(pool.get_ref(), &key_ids).await?;
+
     let available_keys: Vec<UsageKeyOption> = key_rows
         .into_iter()
         .map(|r| UsageKeyOption {
+            username: key_meta
+                .get(&r.auth_key_id)
+                .and_then(|(username, _)| username.clone()),
             auth_key_id: r.auth_key_id,
             auth_key: r.auth_key,
         })
@@ -593,9 +652,13 @@ pub async fn get_analytics_snapshot(
         .bind(range_secs)
         .fetch_all::<DenialReasonRow>();
 
+    // Grouped by `auth_key`, so the id has to be aggregated: `max` rather than
+    // `any` because unknown-key denials carry `auth_key_id = 0`, and `any`
+    // could pick that sentinel over the real id when a key string has both.
     let busiest_fut = client
         .query(
             "SELECT auth_key,
+                    max(auth_key_id) AS auth_key_id,
                     count() AS requests,
                     countIf(decision = 'denied') AS denied,
                     max(toInt64(toUnixTimestamp(ts))) AS last_seen_unix
@@ -680,9 +743,28 @@ pub async fn get_analytics_snapshot(
         })
         .collect();
 
+    // Resolve each surfaced key's owning username and full per-window limit
+    // from Postgres in a single `id = ANY($1)` query (never N round-trips) over
+    // the *union* of both tables' ids — the two panels overlap heavily, and one
+    // batched lookup beats two. `rate_limit_daily` is the per-window amount;
+    // `rate_limit_remaining` is the live ledger we deliberately ignore here —
+    // ClickHouse's `argMax(remaining_after)` is the window's authoritative
+    // remaining. Keys deleted from Postgres but still present in the ClickHouse
+    // window simply miss the lookup → `limit = None` and an unlabelled key.
+    let key_ids: Vec<i64> = quota_rows
+        .iter()
+        .map(|r| r.auth_key_id)
+        .chain(busiest_rows.iter().map(|r| r.auth_key_id))
+        .collect();
+    let pool = extract::<web::Data<sqlx::PgPool>>().await?;
+    let key_meta = lookup_keys(pool.get_ref(), &key_ids).await?;
+
     let busiest_keys: Vec<KeyTrafficRow> = busiest_rows
         .into_iter()
         .map(|r| KeyTrafficRow {
+            username: key_meta
+                .get(&r.auth_key_id)
+                .and_then(|(username, _)| username.clone()),
             auth_key: r.auth_key,
             requests: r.requests,
             denied: r.denied,
@@ -690,34 +772,16 @@ pub async fn get_analytics_snapshot(
         })
         .collect();
 
-    // Resolve each pressured key's full per-window limit from Postgres in a
-    // single `id = ANY($1)` query (never N round-trips). `rate_limit_daily`
-    // is the per-window amount; `rate_limit_remaining` is the live ledger we
-    // deliberately ignore here — ClickHouse's `argMax(remaining_after)` is the
-    // window's authoritative remaining. Keys deleted from Postgres but still
-    // present in the ClickHouse window simply miss the lookup → `limit = None`.
-    let key_ids: Vec<i64> = quota_rows.iter().map(|r| r.auth_key_id).collect();
-    let mut limit_by_id: std::collections::HashMap<i64, f64> = std::collections::HashMap::new();
-    if !key_ids.is_empty() {
-        let pool = extract::<web::Data<sqlx::PgPool>>().await?;
-        let limit_rows: Vec<(i32, f64)> = sqlx::query_as(
-            "SELECT id, rate_limit_daily FROM authentication_keys WHERE id = ANY($1)",
-        )
-        .bind(key_ids.iter().map(|id| *id as i32).collect::<Vec<i32>>())
-        .fetch_all(pool.get_ref())
-        .await
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-        for (id, limit) in limit_rows {
-            limit_by_id.insert(id as i64, limit);
-        }
-    }
-
     let quota_pressure: Vec<QuotaPressureRow> = quota_rows
         .into_iter()
-        .map(|r| QuotaPressureRow {
-            auth_key: r.auth_key,
-            remaining: r.remaining,
-            limit: limit_by_id.get(&r.auth_key_id).copied(),
+        .map(|r| {
+            let meta = key_meta.get(&r.auth_key_id);
+            QuotaPressureRow {
+                auth_key: r.auth_key,
+                username: meta.and_then(|(username, _)| username.clone()),
+                remaining: r.remaining,
+                limit: meta.map(|(_, limit)| *limit),
+            }
         })
         .collect();
 
