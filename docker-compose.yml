@@ -26,11 +26,15 @@ services:
       # anyway). Production: put TLS in front, set COOKIE_SECURE=true, and
       # provide SECRET_KEY + ADMIN_PASSWORD_HASH — otherwise boot fails closed.
       - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      # ClickHouse is optional and external by default — point this at whatever
+      # host runs it. The bundled `clickhouse` service below is opt-in via the
+      # `clickhouse` compose profile; with it enabled the in-network default
+      # (http://koentji:koentji@clickhouse:8123/koentji) works as before.
+      # If ClickHouse is unreachable the app still boots: migrations log an
+      # error and the analytics sink drops events. Only /analytics degrades.
       - CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://koentji:koentji@clickhouse:8123/koentji}
     depends_on:
       db:
-        condition: service_healthy
-      clickhouse:
         condition: service_healthy
     env_file:
       - path: .env
@@ -43,7 +47,7 @@ services:
     # existing deployments keep hitting ${APP_PORT} unchanged — only now the
     # response (notably the WASM bundle) is compressed on the way out.
     ports:
-      - "${APP_PORT:-3000}:80"
+      - "0.0.0.0:${APP_PORT:-3000}:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
@@ -54,6 +58,11 @@ services:
   clickhouse:
     container_name: koentji-clickhouse
     image: clickhouse/clickhouse-server:24-alpine
+    # Opt-in only. Analytics normally point at a ClickHouse running elsewhere
+    # (set CLICKHOUSE_URL). To run the bundled one alongside the stack:
+    #   docker compose --profile clickhouse up -d
+    profiles:
+      - clickhouse
     environment:
       CLICKHOUSE_DB: koentji
       CLICKHOUSE_USER: koentji
@@ -99,7 +108,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-koentji}
       POSTGRES_DB: ${POSTGRES_DB:-koentjilab}
     ports:
-      - "127.0.0.1:${DB_PORT:-5432}:5432"
+      - "0.0.0.0:${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
