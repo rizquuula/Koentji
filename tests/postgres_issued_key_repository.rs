@@ -9,9 +9,10 @@
 //! - `find` hydrates username/email/window_seconds/expired_at/deleted_at.
 //! - `consume_quota` atomically decrements and refuses to go negative.
 //! - `consume_quota` under concurrency never oversells.
-//! - `claim_free_trial` inserts on the FREE_TRIAL marker.
-//! - `claim_free_trial` rebinds a pre-issued `device_id = '-'` row.
-//! - `claim_free_trial` returns `None` for a plain unknown key.
+//! - `claim_unclaimed_key` rebinds a pre-issued `device_id = '-'` row.
+//! - `claim_unclaimed_key` returns `None` for a plain unknown key.
+//! - `claim_unclaimed_key` returns `None` for the retired `FREE_TRIAL`
+//!   marker — no key is ever auto-provisioned.
 //! - Admin verbs: `issue_key`, `revoke_key`, `reassign_device`,
 //!   `reset_rate_limit`, `extend_expiration` — each on the happy path,
 //!   the unknown-id branch, and (where relevant) the idempotent branch.
@@ -22,8 +23,8 @@ mod common;
 
 use chrono::{DateTime, Duration, Utc};
 use koentji::domain::authentication::{
-    AuthKey, ConsumeOutcome, DeviceId, FreeTrialConfig, IssueKeyCommand, IssuedKeyId,
-    IssuedKeyRepository, RateLimitAmount, RateLimitUsage, SubscriptionName,
+    AuthKey, ConsumeOutcome, DeviceId, IssueKeyCommand, IssuedKeyId, IssuedKeyRepository,
+    RateLimitAmount, RateLimitUsage, SubscriptionName,
 };
 use koentji::infrastructure::postgres::PostgresIssuedKeyRepository;
 use std::sync::Arc;
@@ -319,27 +320,31 @@ async fn consume_quota_denies_when_usage_exceeds_daily() {
 }
 
 #[tokio::test]
-async fn claim_free_trial_inserts_on_marker_match() {
+async fn claim_unclaimed_key_denies_the_retired_free_trial_marker() {
+    // Free trials are gone: `FREE_TRIAL` is now just another unknown
+    // key. Nothing is auto-provisioned, so the use case denies with
+    // `DenialReason::UnknownKey`.
     let pool = fresh_pool().await;
     let r = repo(pool.clone());
-    let config = FreeTrialConfig::new("FREE_TRIAL", "free");
 
     let out = r
-        .claim_free_trial(&auth_key("FREE_TRIAL"), &device("dev-new-trial"), &config)
+        .claim_unclaimed_key(&auth_key("FREE_TRIAL"), &device("dev-new-trial"))
         .await
-        .expect("claim must not error")
-        .expect("row was created");
+        .expect("claim must not error");
 
-    assert_eq!(out.key.as_str(), "FREE_TRIAL");
-    assert_eq!(out.device_id.as_str(), "dev-new-trial");
-    assert!(out.expired_at.is_some());
-    // Free-trial rows carry the "free" subscription by default.
-    assert_eq!(out.subscription.as_ref().map(|s| s.as_str()), Some("free"));
-    assert!(out.is_free_trial);
+    assert!(out.is_none(), "the marker must no longer provision a key");
+
+    let (count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM authentication_keys WHERE key = $1")
+            .bind("FREE_TRIAL")
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+    assert_eq!(count, 0, "no row may be inserted for the marker");
 }
 
 #[tokio::test]
-async fn claim_free_trial_rebinds_a_pre_issued_key() {
+async fn claim_unclaimed_key_rebinds_a_pre_issued_key() {
     // Admin-issued "pre-bound" row sits with device_id='-'; the first
     // device to call in claims it by rebinding.
     let pool = fresh_pool().await;
@@ -350,13 +355,8 @@ async fn claim_free_trial_rebinds_a_pre_issued_key() {
         .await;
 
     let r = repo(pool.clone());
-    let config = FreeTrialConfig::new("FREE_TRIAL", "free");
     let out = r
-        .claim_free_trial(
-            &auth_key("klab_preissued_42"),
-            &device("dev-new-owner"),
-            &config,
-        )
+        .claim_unclaimed_key(&auth_key("klab_preissued_42"), &device("dev-new-owner"))
         .await
         .expect("claim must not error")
         .expect("rebind returns a fresh snapshot");
@@ -374,13 +374,12 @@ async fn claim_free_trial_rebinds_a_pre_issued_key() {
 }
 
 #[tokio::test]
-async fn claim_free_trial_returns_none_for_an_unknown_non_marker_key() {
+async fn claim_unclaimed_key_returns_none_for_an_unknown_key() {
     let pool = fresh_pool().await;
     let r = repo(pool.clone());
-    let config = FreeTrialConfig::new("FREE_TRIAL", "free");
 
     let out = r
-        .claim_free_trial(&auth_key("klab_nope"), &device("dev-nope"), &config)
+        .claim_unclaimed_key(&auth_key("klab_nope"), &device("dev-nope"))
         .await
         .expect("claim must not error");
 

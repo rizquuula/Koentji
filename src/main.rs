@@ -54,7 +54,6 @@ async fn main() -> std::io::Result<()> {
         UnrevokeKey,
     };
     use koentji::domain::admin_access::{LockoutPolicy, LoginAttemptLedger};
-    use koentji::domain::authentication::FreeTrialConfig;
     use koentji::infrastructure::cache::MokaAuthCache;
     use koentji::infrastructure::postgres::{
         PostgresAuditEventRepository, PostgresIssuedKeyRepository,
@@ -103,11 +102,6 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(900);
     log::info!("Auth cache TTL: {}s", cache_ttl);
 
-    let free_trial = FreeTrialConfig::new(
-        std::env::var("FREE_TRIAL_KEY").unwrap_or_else(|_| "FREE_TRIAL".to_string()),
-        std::env::var("FREE_TRIAL_SUBSCRIPTION_NAME").unwrap_or_else(|_| "free".to_string()),
-    );
-
     let issued_key_repo: std::sync::Arc<dyn koentji::domain::authentication::IssuedKeyRepository> =
         std::sync::Arc::new(PostgresIssuedKeyRepository::new(pool.clone()));
     let auth_cache_port: std::sync::Arc<dyn koentji::domain::authentication::AuthCachePort> =
@@ -117,7 +111,6 @@ async fn main() -> std::io::Result<()> {
     let auth_handler = std::sync::Arc::new(AuthenticateApiKey::new(
         issued_key_repo.clone(),
         auth_cache_port.clone(),
-        free_trial,
     ));
     let issue_key = std::sync::Arc::new(IssueKey::new(issued_key_repo.clone(), audit_port.clone()));
     let revoke_key = std::sync::Arc::new(RevokeKey::new(

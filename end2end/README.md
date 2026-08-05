@@ -29,7 +29,6 @@ Anything in `fixtures/env.ts` can be overridden. Useful ones:
 | `E2E_PORT` | `3001` | Port the test server binds to |
 | `E2E_DATABASE_URL` | `postgres://koentji:koentji@127.0.0.1:5432/koentjilab_test` | Test DB URL |
 | `E2E_ADMIN_USERNAME` / `E2E_ADMIN_PASSWORD` | `e2eadmin` / `e2eadmin` | Admin creds (passed to the test server as `ADMIN_USERNAME`/`ADMIN_PASSWORD`) |
-| `E2E_FREE_TRIAL_KEY` | `FREE_TRIAL` | Free-trial magic key |
 
 ## How it works
 

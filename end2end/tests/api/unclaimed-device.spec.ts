@@ -1,12 +1,11 @@
 // G3 — Unclaimed device sentinel: `device_id = '-'` rebinds on first call.
 //
 // Verified against src/infrastructure/postgres/issued_key_repository.rs
-// ::claim_free_trial, Branch B. The rebind is NOT gated on the FREE_TRIAL
-// marker — any key whose only row has device_id='-' gets adopted by the
-// first caller. Flow:
+// ::claim_unclaimed_key. Any admin-issued key whose only row has
+// device_id='-' gets adopted by the first caller. Flow:
 //   1. find(key, real_dev) → None (no row matches)
-//   2. claim_free_trial → Branch A skipped (key != marker) → Branch B
-//      finds the (key, '-') row and UPDATEs it to real_dev
+//   2. claim_unclaimed_key finds the (key, '-') row and UPDATEs it to
+//      real_dev
 //   3. find(key, real_dev) → Some → use case proceeds to consume_quota
 // After adoption the sentinel row no longer exists, so a second device
 // calling the same key gets UnknownKey (401).

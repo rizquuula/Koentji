@@ -110,7 +110,7 @@ clickhouse/
 
 1. `interface/http/auth_endpoint.rs` parses into `AuthKey` + `DeviceId`. `rate_limit_usage` is coerced float-aware: NaN, infinite, or non-positive collapses to `1.0`.
 2. `application::AuthenticateApiKey` checks the `AuthCachePort`; on miss it calls `IssuedKeyRepository::find`.
-3. If the row is missing and the `auth_key == FREE_TRIAL_KEY`, it tries `claim_free_trial` (inserts/rebinds a row with expiry on the 1st of next month UTC).
+3. If the row is missing, it tries `claim_unclaimed_key` — an admin-issued key still sitting on the `device_id = '-'` sentinel is rebound to the caller's device. Nothing is ever auto-provisioned; if no unclaimed row matches, the pair is denied as `UnknownKey`.
 4. `IssuedKey::authorize(usage, now)` returns `AuthDecision::Allowed(snapshot) | Denied(reason)` — **pure domain logic, testable without a DB.**
 5. On `Allowed`, `IssuedKeyRepository::consume_quota` runs a single atomic `UPDATE … RETURNING` that decides reset-vs-decrement in SQL (no read-modify-write race).
 6. The success envelope renders `rate_limit_remaining` as an integer (ceil shim — a fractional remainder must not round down to 0 and read as "exhausted"). `DenialEnvelope::from_reason` renders a byte-identical `{ error: { en, id }, message }` envelope on denial.
@@ -130,7 +130,7 @@ Use cases live in `application/` and compose three ports: `IssuedKeyRepository` 
 - **Float in, integer out.** `rate_limit_usage` is accepted as `f64` so callers may consume fractional units, but the response keeps the frozen integer `rate_limit_remaining` (ceil shim). Widening the request field from `i32` to `f64` is backward-compatible: JSON `1` deserialises straight into `1.0`. The ledger stores the exact `f64`; only the wire envelope ceils.
 - **Atomic rate-limit consume.** One `UPDATE … SET remaining = GREATEST(remaining - $usage, 0) WHERE remaining > $usage RETURNING …`. If the `RETURNING` is empty, it's a 429.
 - **Per-request analytics in ClickHouse, not Postgres.** Bounded mpsc (10 000) + 1 000/1 s batch flush; drops on overflow; never blocks the hot path. `/v1/auth` emits on every request (allow / deny / backend error).
-- **Free-trial marker**, not a dedicated endpoint. Sending `auth_key == FREE_TRIAL_KEY` on an unknown `(key, device)` pair auto-provisions a row expiring on the 1st of next month UTC.
+- **Licences are admin-issued only.** There is no self-service provisioning path on `/v1/auth` — the endpoint can bind a key to a device but never creates one. (A magic `FREE_TRIAL` marker used to auto-provision a row here; it was removed because a documented default marker is an unauthenticated way to mint a working licence.) Rows created by that path still exist in production and are untouched; `DenialReason::FreeTrialEnded` therefore stays in the frozen envelope for any key on the `free` subscription.
 - **Unclaimed device sentinel.** `device_id = '-'` means "pre-issued, not yet bound." First call with that key adopts the sentinel row for the caller's real device.
 - **Single-admin, in-memory lockout.** `LoginAttemptLedger` is a per-process sliding window (5 failures / 5 min) — fine for single-replica. Multi-replica would need Redis or equivalent.
 - **In-process auth cache.** `MokaAuthCache` holds the full `IssuedKey` aggregate under `(AuthKey, DeviceId)`. TTL is `AUTH_CACHE_TTL_SECONDS`.

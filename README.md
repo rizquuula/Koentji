@@ -65,7 +65,6 @@ See [.env.example](.env.example). Required in every environment:
 | `ADMIN_USERNAME`        | `admin`         | Dashboard login                                  |
 | `ADMIN_PASSWORD_HASH`   | —               | **Use in production.** argon2id PHC string; generate via `make hash-admin-password PASSWORD=...` |
 | `ADMIN_PASSWORD`        | `admin`         | Plaintext fallback — dev/e2e only; logs a warning at boot |
-| `FREE_TRIAL_KEY`        | `FREE_TRIAL`    | Marker value that auto-provisions a trial row on first call |
 | `AUTH_CACHE_TTL_SECONDS`| `900`           | Moka auth-cache TTL                              |
 | `COOKIE_SECURE`         | `true`          | Set to `false` only for plain-HTTP local dev     |
 | `WORKERS`               | `4`             | Actix worker threads                             |

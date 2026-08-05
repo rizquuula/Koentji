@@ -4,8 +4,9 @@
 //! do procedurally:
 //!
 //! 1. Cache lookup → if hit, skip the DB read.
-//! 2. Miss → repository find. If still missing, try the free-trial /
-//!    device-binding branch.
+//! 2. Miss → repository find. If still missing, try the unclaimed-key
+//!    device-binding branch (an admin-issued key whose `device_id` is
+//!    still the `'-'` sentinel).
 //! 3. `IssuedKey::authorize` — pure decision against the snapshot.
 //! 4. On `Allowed`, call `consume_quota` (atomic SQL) to handle
 //!    concurrent consumers.
@@ -24,8 +25,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
 use crate::domain::authentication::{
-    AuthCachePort, AuthDecision, AuthKey, ConsumeOutcome, DenialReason, DeviceId, FreeTrialConfig,
-    IssuedKey, IssuedKeyRepository, RateLimitAmount, RateLimitUsage,
+    AuthCachePort, AuthDecision, AuthKey, ConsumeOutcome, DenialReason, DeviceId, IssuedKey,
+    IssuedKeyRepository, RateLimitAmount, RateLimitUsage,
 };
 
 /// The terminal outcome the HTTP adapter translates to a status +
@@ -51,20 +52,11 @@ pub enum AuthOutcome {
 pub struct AuthenticateApiKey {
     repo: Arc<dyn IssuedKeyRepository>,
     cache: Arc<dyn AuthCachePort>,
-    free_trial: FreeTrialConfig,
 }
 
 impl AuthenticateApiKey {
-    pub fn new(
-        repo: Arc<dyn IssuedKeyRepository>,
-        cache: Arc<dyn AuthCachePort>,
-        free_trial: FreeTrialConfig,
-    ) -> Self {
-        Self {
-            repo,
-            cache,
-            free_trial,
-        }
+    pub fn new(repo: Arc<dyn IssuedKeyRepository>, cache: Arc<dyn AuthCachePort>) -> Self {
+        Self { repo, cache }
     }
 
     pub async fn execute(
@@ -105,13 +97,9 @@ impl AuthenticateApiKey {
                 self.cache.put(snapshot.clone()).await;
                 ResolveOutcome::Snapshot(snapshot)
             }
-            Ok(None) => match self
-                .repo
-                .claim_free_trial(key, device, &self.free_trial)
-                .await
-            {
+            Ok(None) => match self.repo.claim_unclaimed_key(key, device).await {
                 Err(e) => {
-                    tracing::error!(device = device.as_str(), error = %e, "claim_free_trial failed");
+                    tracing::error!(device = device.as_str(), error = %e, "claim_unclaimed_key failed");
                     ResolveOutcome::Backend
                 }
                 Ok(Some(snapshot)) => {

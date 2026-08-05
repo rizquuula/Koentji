@@ -13,7 +13,7 @@
 //!
 //! - [`IssuedKeyRepository::find`] — snapshot read of
 //!   `(AuthKey, DeviceId)`; returns `None` when nothing exists so the
-//!   use case can route into the free-trial branch or return
+//!   use case can route into the unclaimed-key branch or return
 //!   `DenialReason::UnknownKey`.
 //! - [`IssuedKeyRepository::consume_quota`] — atomic decrement + window
 //!   reset in a single SQL round-trip. Callers must have already
@@ -71,25 +71,6 @@ pub enum ConsumeOutcome {
     RateLimitExceeded,
 }
 
-/// Configuration for the free-trial claim. The marker is the public
-/// magic string clients send as the auth key (default `FREE_TRIAL`),
-/// and `subscription_name` is the subscription-type row we look up to
-/// copy quota + interval from (default `free`).
-#[derive(Debug, Clone)]
-pub struct FreeTrialConfig {
-    pub marker: String,
-    pub subscription_name: String,
-}
-
-impl FreeTrialConfig {
-    pub fn new(marker: impl Into<String>, subscription_name: impl Into<String>) -> Self {
-        Self {
-            marker: marker.into(),
-            subscription_name: subscription_name.into(),
-        }
-    }
-}
-
 /// Repository errors the domain cares about. We do not leak SQLx
 /// directly; the Postgres adapter collapses its errors into this
 /// small enum so the application layer can pattern-match without
@@ -128,24 +109,19 @@ pub trait IssuedKeyRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> Result<ConsumeOutcome, RepositoryError>;
 
-    /// Two-way door the legacy handler exposed at the miss-in-DB
-    /// boundary:
+    /// First-call binding for an admin-issued key that is still
+    /// waiting for its device: if a row exists with this `key` and the
+    /// unclaimed-device sentinel (`"-"`), rebind its `device_id` to
+    /// `device` and return the resulting aggregate.
     ///
-    /// - if `key` equals `config.marker`, issue a fresh free-trial
-    ///   row for `device` (subscription + quota copied from
-    ///   `config.subscription_name`, expiring on the 1st of next
-    ///   month in UTC);
-    /// - otherwise if a row exists with the same key and the
-    ///   unclaimed-device sentinel (`"-"`), rebind its `device_id`
-    ///   to the requested one.
-    ///
-    /// Returns `Ok(None)` when neither branch fires — the use case
-    /// treats that as `DenialReason::UnknownKey`.
-    async fn claim_free_trial(
+    /// This never creates a key. Keys are admin-issued only; an
+    /// unknown `(key, device)` pair with no unclaimed row behind it
+    /// returns `Ok(None)`, which the use case treats as
+    /// `DenialReason::UnknownKey`.
+    async fn claim_unclaimed_key(
         &self,
         key: &AuthKey,
         device: &DeviceId,
-        config: &FreeTrialConfig,
     ) -> Result<Option<IssuedKey>, RepositoryError>;
 
     /// Admin command — persist a brand-new issued key and return the

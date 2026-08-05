@@ -126,10 +126,11 @@ Every one of these was a real finding in the pre-refactor audit (see `.claude-re
 │ application/authenticate_api_key.rs                          │
 │                                                              │
 │  1. cache.get(key, device) ────────► HIT: skip to step 3     │
-│  2. repo.find(key, device) ───► miss + key==FREE_TRIAL_KEY   │
-│           │                     ──► repo.claim_free_trial()  │
-│           │                          (upsert; expiry = 1st   │
-│           │                          of next month UTC)      │
+│  2. repo.find(key, device) ───► miss                         │
+│           │                     ──► repo.claim_unclaimed_key()│
+│           │                          (rebinds a pre-issued   │
+│           │                           device_id='-' row only;│
+│           │                           never creates a key)   │
 │           ▼                                                  │
 │  3. IssuedKey.authorize(usage, now) ─► AuthDecision          │
 │                                        │ Allowed(snapshot)   │

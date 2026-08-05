@@ -32,7 +32,6 @@ jobs:
       E2E_DB_PORT: "5432"
       E2E_ADMIN_USERNAME: e2eadmin
       E2E_ADMIN_PASSWORD: e2eadmin
-      E2E_FREE_TRIAL_KEY: FREE_TRIAL
       E2E_SECRET_KEY: koentji-e2e-secret-key-that-is-at-least-64-bytes-long-aaaaaaaaaaaaaaaaa
 
     steps:

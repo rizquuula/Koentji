@@ -19,7 +19,6 @@ services:
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
-      - FREE_TRIAL_KEY=${FREE_TRIAL_KEY:-FREE_TRIAL}
       - AUTH_CACHE_TTL_SECONDS=${AUTH_CACHE_TTL_SECONDS:-900}
       # This bundled stack is fronted by http-only nginx, so it runs as a
       # dev posture by default (Secure cookies aren't sent over http

@@ -163,11 +163,10 @@ pub fn a_revoked_key() -> KeyBuilder {
     KeyBuilder::default().revoked()
 }
 
-/// A free-trial key — the one the public endpoint upserts on first use.
-pub fn a_free_trial_key() -> KeyBuilder {
-    KeyBuilder::default()
-        .with_key("FREE_TRIAL")
-        .with_subscription("free")
+/// An admin-issued key that has not been bound to a device yet — the
+/// `'-'` unclaimed sentinel the first caller adopts.
+pub fn an_unclaimed_key() -> KeyBuilder {
+    KeyBuilder::default().with_device("-")
 }
 
 fn rand_slug() -> String {

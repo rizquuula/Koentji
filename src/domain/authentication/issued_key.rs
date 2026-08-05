@@ -21,11 +21,6 @@ use super::device_id::DeviceId;
 use super::rate_limit::{RateLimitAmount, RateLimitUsage, RateLimitWindow};
 use super::subscription_name::SubscriptionName;
 
-/// The free-trial marker used in the legacy schema to distinguish auto-
-/// provisioned rows from admin-issued ones. Kept as a constant so the
-/// string literal doesn't leak across the codebase.
-pub const FREE_TRIAL_MARKER_DEFAULT: &str = "FREE_TRIAL";
-
 /// Identity — once persisted, every aggregate has a stable numeric id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IssuedKeyId(i32);

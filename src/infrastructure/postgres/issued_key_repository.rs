@@ -25,9 +25,9 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
 use crate::domain::authentication::{
-    AuthKey, ConsumeOutcome, DeviceId, DeviceReassignment, FreeTrialConfig, IssueKeyCommand,
-    IssuedKey, IssuedKeyId, IssuedKeyRepository, RateLimitAmount, RateLimitLedger, RateLimitUsage,
-    RateLimitWindow, RepositoryError, SubscriptionName,
+    AuthKey, ConsumeOutcome, DeviceId, DeviceReassignment, IssueKeyCommand, IssuedKey, IssuedKeyId,
+    IssuedKeyRepository, RateLimitAmount, RateLimitLedger, RateLimitUsage, RateLimitWindow,
+    RepositoryError, SubscriptionName,
 };
 use crate::domain::errors::DomainError;
 
@@ -135,89 +135,14 @@ impl IssuedKeyRepository for PostgresIssuedKeyRepository {
         })
     }
 
-    async fn claim_free_trial(
+    async fn claim_unclaimed_key(
         &self,
         key: &AuthKey,
         device: &DeviceId,
-        config: &FreeTrialConfig,
     ) -> Result<Option<IssuedKey>, RepositoryError> {
-        use chrono::{Datelike, Utc};
-
         let backend = |e: sqlx::Error| RepositoryError::Backend(e.to_string());
 
-        // Branch A — client presented the FREE_TRIAL magic marker.
-        if key.as_str() == config.marker {
-            let sub: Option<(i32, f64, i32)> = sqlx::query_as(
-                "SELECT id, rate_limit_amount, rate_limit_interval_id
-                 FROM subscription_types
-                 WHERE name = $1 AND is_active = true
-                 LIMIT 1",
-            )
-            .bind(&config.subscription_name)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(backend)?;
-
-            let (sub_name, sub_type_id, rate_limit, interval_id) = if let Some((
-                id,
-                quota,
-                interval_id,
-            )) = sub
-            {
-                (
-                    config.subscription_name.clone(),
-                    Some(id),
-                    quota,
-                    Some(interval_id),
-                )
-            } else {
-                log::warn!(
-                    "Free trial subscription type '{}' not found or inactive, using hardcoded fallback (6000 daily)",
-                    config.subscription_name
-                );
-                ("free_trial".to_string(), None, 6000.0_f64, None)
-            };
-
-            let now = Utc::now();
-            let d = now.date_naive();
-            let (y, m) = if d.month() == 12 {
-                (d.year() + 1, 1u32)
-            } else {
-                (d.year(), d.month() + 1)
-            };
-            let next_month = chrono::NaiveDate::from_ymd_opt(y, m, 1)
-                .and_then(|nd| nd.and_hms_opt(0, 0, 0))
-                .map(|ndt| chrono::DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc));
-
-            sqlx::query(
-                r#"INSERT INTO authentication_keys
-                    (key, device_id, subscription, subscription_type_id,
-                     rate_limit_interval_id, created_by, created_at, updated_at,
-                     expired_at, rate_limit_daily, rate_limit_remaining)
-                   VALUES ($1, $2, $3, $4, $5, 'system', $6, $6, $7, $8, $8)"#,
-            )
-            .bind(key.as_str())
-            .bind(device.as_str())
-            .bind(&sub_name)
-            .bind(sub_type_id)
-            .bind(interval_id)
-            .bind(now)
-            .bind(next_month)
-            .bind(rate_limit)
-            .execute(&self.pool)
-            .await
-            .map_err(backend)?;
-
-            log::info!(
-                "Free trial created: device={}, subscription={}",
-                device.as_str(),
-                sub_name
-            );
-
-            return self.find(key, device).await;
-        }
-
-        // Branch B — a pre-issued key is waiting with `device_id = '-'`.
+        // A pre-issued, admin-created key is waiting with `device_id = '-'`.
         let rebinding: Option<(i32,)> = sqlx::query_as(
             "SELECT id FROM authentication_keys
              WHERE key = $1 AND device_id = '-'

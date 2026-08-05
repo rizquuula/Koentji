@@ -45,9 +45,11 @@ async fn insert_rejects_a_duplicate_key_device_pair() {
 
 #[tokio::test]
 async fn insert_permits_the_same_key_with_different_devices() {
-    // FREE_TRIAL (and pre-issued keys) legitimately share one `key`
-    // across many `device_id` values. Migration 003 dropped the old
-    // UNIQUE(key); migration 004 must not re-introduce it.
+    // A single `key` may legitimately appear under several
+    // `device_id` values (historical auto-provisioned rows, and
+    // admin-issued keys reassigned across devices). Migration 003
+    // dropped the old UNIQUE(key); migration 004 must not
+    // re-introduce it.
     let pool = fresh_pool().await;
     a_key()
         .with_key("klab_shared_key")

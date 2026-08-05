@@ -20,9 +20,8 @@ use koentji::application::{
 };
 use koentji::domain::authentication::{
     AuditEventPort, AuthCachePort, AuthKey, ConsumeOutcome, DeviceId, DeviceReassignment,
-    DomainEvent, FreeTrialConfig, IssueKeyCommand, IssuedKey, IssuedKeyId, IssuedKeyRepository,
-    RateLimitAmount, RateLimitLedger, RateLimitUsage, RateLimitWindow, RepositoryError,
-    SubscriptionName,
+    DomainEvent, IssueKeyCommand, IssuedKey, IssuedKeyId, IssuedKeyRepository, RateLimitAmount,
+    RateLimitLedger, RateLimitUsage, RateLimitWindow, RepositoryError, SubscriptionName,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -91,11 +90,10 @@ impl IssuedKeyRepository for FakeRepo {
         Ok(ConsumeOutcome::RateLimitExceeded)
     }
 
-    async fn claim_free_trial(
+    async fn claim_unclaimed_key(
         &self,
         _key: &AuthKey,
         _device: &DeviceId,
-        _config: &FreeTrialConfig,
     ) -> Result<Option<IssuedKey>, RepositoryError> {
         Ok(None)
     }

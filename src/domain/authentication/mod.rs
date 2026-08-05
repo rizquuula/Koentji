@@ -28,11 +28,11 @@ pub use auth_event_sink::{AuthEventSink, NoopAuthEventSink};
 pub use auth_key::AuthKey;
 pub use device_id::DeviceId;
 pub use events::DomainEvent;
-pub use issued_key::{IssuedKey, IssuedKeyId, RateLimitLedger, FREE_TRIAL_MARKER_DEFAULT};
+pub use issued_key::{IssuedKey, IssuedKeyId, RateLimitLedger};
 #[cfg(feature = "ssr")]
 pub use issued_key_repository::IssuedKeyRepository;
 pub use issued_key_repository::{
-    ConsumeOutcome, DeviceReassignment, FreeTrialConfig, IssueKeyCommand, RepositoryError,
+    ConsumeOutcome, DeviceReassignment, IssueKeyCommand, RepositoryError,
 };
 pub use rate_limit::{RateLimitAmount, RateLimitUsage, RateLimitWindow};
 pub use subscription_name::SubscriptionName;

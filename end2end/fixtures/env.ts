@@ -17,9 +17,6 @@ export const DATABASE_URL =
 export const ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME ?? 'e2eadmin';
 export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'e2eadmin';
 
-export const FREE_TRIAL_KEY = process.env.E2E_FREE_TRIAL_KEY ?? 'FREE_TRIAL';
-export const FREE_TRIAL_SUBSCRIPTION_NAME = 'free';
-
 export const SECRET_KEY =
   process.env.E2E_SECRET_KEY ??
   'koentji-e2e-secret-key-that-is-at-least-64-bytes-long-aaaaaaaaaaaaaaaaa';
@@ -37,8 +34,6 @@ export const SERVER_ENV: Record<string, string> = {
   LEPTOS_RELOAD_PORT: String(E2E_PORT + 1),
   ADMIN_USERNAME,
   ADMIN_PASSWORD,
-  FREE_TRIAL_KEY,
-  FREE_TRIAL_SUBSCRIPTION_NAME,
   SECRET_KEY,
   AUTH_CACHE_TTL_SECONDS: '2',
   WORKERS: '2',
