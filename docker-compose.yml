@@ -56,7 +56,13 @@ services:
 
   clickhouse:
     container_name: koentji-clickhouse
-    image: clickhouse/clickhouse-server:24-alpine
+    # 25.8 LTS. The 24.10 the stack ran before had a global memory tracker that
+    # drifted upward and never resynced: it reported 1.52 PiB in use against a
+    # real RSS of 512 MiB, which failed every query including SELECT count().
+    # 25.x resyncs the tracker against the cgroup periodically, so drift is
+    # self-correcting. Note ClickHouse does not support downgrades — going back
+    # to 24.x needs the volume recreated, not just the tag reverted.
+    image: clickhouse/clickhouse-server:25.8-alpine
     # Opt-in only. Analytics normally point at a ClickHouse running elsewhere
     # (set CLICKHOUSE_URL). To run the bundled one alongside the stack:
     #   docker compose --profile clickhouse up -d
@@ -72,13 +78,13 @@ services:
     volumes:
       - ./chdata:/var/lib/clickhouse
       - ./clickhouse/config.d/low-mem.xml:/etc/clickhouse-server/config.d/low-mem.xml:ro
-    # Give ClickHouse a cgroup memory limit so its MemoryWorker can read the
-    # bound and periodically resync the global memory tracker to real RSS.
-    # Without this the tracker drifts (a killed query leaks it) and eventually
-    # every query trips the OvercommitTracker even at ~250 MiB real usage. Kept
-    # just above the internal 1 GiB max_server_memory_usage as a backstop, not
-    # the primary cap — the host has only ~1.9 GiB shared across all services.
-    mem_limit: 1200m
+      - ./clickhouse/users.d/low-mem.xml:/etc/clickhouse-server/users.d/low-mem.xml:ro
+    # Hard cap. ClickHouse reads this cgroup bound as its available RAM and
+    # sizes itself against it, so this is the real limit, not just a backstop.
+    # It stays above the 1.5 GiB max_server_memory_usage in config.d/low-mem.xml
+    # so the server refuses a query cleanly before the OOM killer takes the
+    # whole container. Generous for the workload: auth_events is ~6 MB.
+    mem_limit: 2g
     mem_reservation: 512m
     # Lets ClickHouse set its NUMA memory policy at boot. Without CAP_SYS_NICE
     # the get_mempolicy/set_mempolicy syscalls return EPERM under Docker's
@@ -91,7 +97,10 @@ services:
         soft: 262144
         hard: 262144
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://clickhouse:8123/ping || exit 1"]
+      # Reads the body rather than using --spider. --spider closes the socket
+      # once headers arrive, so ClickHouse logs a NETWORK_ERROR "connection
+      # reset by peer" on every probe — noise that buries real errors.
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 -O - http://clickhouse:8123/ping || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10

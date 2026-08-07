@@ -1,0 +1,23 @@
+<clickhouse>
+  <profiles>
+    <default>
+      <!-- Per-query ceiling, under the 1.5 GiB server ceiling so that one bad
+           analytics query fails by itself instead of starving the server. -->
+      <max_memory_usage>1073741824</max_memory_usage>
+
+      <!-- The trade the analytics page needs: once an aggregation or sort
+           exceeds these thresholds it spills to disk and finishes slowly,
+           rather than dying with MEMORY_LIMIT_EXCEEDED. This is what makes a
+           2 GiB cap survivable as the dataset grows. -->
+      <max_bytes_before_external_group_by>536870912</max_bytes_before_external_group_by>
+      <max_bytes_before_external_sort>536870912</max_bytes_before_external_sort>
+      <join_algorithm>grace_hash,partial_merge,hash</join_algorithm>
+
+      <!-- Peak query memory scales with thread count, since each thread keeps
+           its own aggregation state. 4 threads instead of auto(24) is the
+           single biggest reduction in worst-case query memory available here,
+           and costs only wall-clock time on a 6 MB table. -->
+      <max_threads>4</max_threads>
+    </default>
+  </profiles>
+</clickhouse>

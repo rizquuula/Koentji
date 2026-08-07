@@ -1,15 +1,60 @@
 <clickhouse>
   <listen_host>0.0.0.0</listen_host>
-  <max_server_memory_usage>1073741824</max_server_memory_usage>
+
+  <!-- Server-wide ceiling, held ~400 MiB under the 2 GiB cgroup limit in
+       docker-compose.yml. The gap is deliberate: the cgroup must never be the
+       thing that stops us, because hitting it means the OOM killer, while
+       hitting max_server_memory_usage means a clean per-query exception. -->
+  <max_server_memory_usage>1610612736</max_server_memory_usage>
+
   <mark_cache_size>67108864</mark_cache_size>
   <uncompressed_cache_size>0</uncompressed_cache_size>
-  <max_concurrent_queries>20</max_concurrent_queries>
-  <background_pool_size>16</background_pool_size>
+  <max_concurrent_queries>8</max_concurrent_queries>
+
+  <!-- Small merge pool on purpose. Merges are the main background memory
+       consumer, and this dataset is tiny (auth_events is ~6 MB), so there is
+       nothing to gain from parallelism here. Slower merges are fine. -->
+  <background_pool_size>8</background_pool_size>
   <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+  <merges_mutations_memory_usage_soft_limit>536870912</merges_mutations_memory_usage_soft_limit>
+
+  <!-- These reserve-slot thresholds must stay below background_pool_size *
+       background_merges_mutations_concurrency_ratio (8 * 2 = 16), or the
+       server refuses to boot with BAD_ARGUMENTS. Their defaults (20 / 8 / 25)
+       assume the stock pool of 16, so shrinking the pool means shrinking
+       these to match. -->
+  <merge_tree>
+    <number_of_free_entries_in_pool_to_execute_mutation>6</number_of_free_entries_in_pool_to_execute_mutation>
+    <number_of_free_entries_in_pool_to_lower_max_size_of_merge>4</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+    <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>8</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+  </merge_tree>
+
+  <!-- Every system log table is a real MergeTree that ingests, merges and is
+       itself logged about. On a memory-capped server that is a feedback loop:
+       a failing merge logs an error, the error is written to text_log, that
+       write makes a part, the part needs a merge, that merge fails. Leaving
+       text_log on once cost 526 MB of the 583 MB on disk and pinned 48 merge
+       threads at 320% CPU for three weeks. None of these are worth it here. -->
   <metric_log remove="1"/>
   <asynchronous_metric_log remove="1"/>
   <query_log remove="1"/>
   <query_thread_log remove="1"/>
   <trace_log remove="1"/>
   <part_log remove="1"/>
+  <text_log remove="1"/>
+  <error_log remove="1"/>
+  <query_metric_log remove="1"/>
+  <processors_profile_log remove="1"/>
+  <backup_log remove="1"/>
+  <blob_storage_log remove="1"/>
+  <session_log remove="1"/>
+
+  <!-- Trace level wrote ~900 MB/hour to disk during the incident. Warning is
+       enough to see real problems, and the size/count caps bound the worst
+       case to 500 MB even if something starts flooding again. -->
+  <logger>
+    <level>warning</level>
+    <size>50M</size>
+    <count>10</count>
+  </logger>
 </clickhouse>
