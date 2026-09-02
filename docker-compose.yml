@@ -1,6 +1,7 @@
 services:
   app:
     container_name: koentji-app
+    restart: unless-stopped
     image: ${APP_IMAGE:-ghcr.io/rizquuula/koentji:latest}
     build: .
     # The app is reachable only on the internal compose network. The nginx
@@ -56,6 +57,7 @@ services:
 
   clickhouse:
     container_name: koentji-clickhouse
+    restart: unless-stopped
     # 25.8 LTS. The 24.10 the stack ran before had a global memory tracker that
     # drifted upward and never resynced: it reported 1.52 PiB in use against a
     # real RSS of 512 MiB, which failed every query including SELECT count().
@@ -110,6 +112,7 @@ services:
 
   db:
     container_name: koentji-db
+    restart: unless-stopped
     image: ${DB_IMAGE:-postgres:16-alpine}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-koentji}
