@@ -34,6 +34,11 @@ jobs:
           # in flight). We don't expose RSA over a network-observable
           # sidechannel, so accept the advisory until a patch lands.
           ignore: RUSTSEC-2023-0071
+          # RUSTSEC-2026-0258: h2 unbounded empty DATA frames — low-severity
+          # client-side DoS. No patched 0.3.x exists (fix is h2 0.4.16+);
+          # clearing it requires the hyper 1.x / h2 0.4 stack upgrade.
+          # Accept until that upgrade happens.
+          ignore: RUSTSEC-2026-0258
 
   docker:
     name: docker build
